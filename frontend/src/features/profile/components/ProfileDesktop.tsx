@@ -27,7 +27,14 @@ export const ProfileDesktop = ({
   const { user, recentStartups, myVacancies, myApplications, totals } = dashboard;
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '280px minmax(0, 1fr)', gap: 24 }}>
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: '280px minmax(0, 1fr)',
+        gap: 24,
+        alignItems: 'start',
+      }}
+    >
       <ProfileSidebar user={user} totals={totals} />
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>

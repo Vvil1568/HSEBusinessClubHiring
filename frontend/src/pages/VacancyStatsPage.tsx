@@ -143,9 +143,11 @@ export const VacancyStatsPage = () => {
       <div
         style={{
           display: 'grid',
-          // `1fr` resolves to minmax(auto, 1fr) and is floored by content, which
-          // is how the chart card escaped the viewport. minmax(0, ...) forbids it.
-          gridTemplateColumns: isMobile ? 'minmax(0, 1fr)' : 'minmax(0, 1fr) 360px',
+          // Single column on every breakpoint: the applications list must sit
+          // below the chart, not next to it. `minmax(0, 1fr)` (instead of `1fr`)
+          // is still required so the chart cannot force the track wider than the
+          // viewport.
+          gridTemplateColumns: 'minmax(0, 1fr)',
           gap: 20,
           alignItems: 'start',
           minWidth: 0,
@@ -234,7 +236,18 @@ export const VacancyStatsPage = () => {
                       Откликов пока нет.
                     </span>
                   ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <div
+                      style={{
+                        display: 'grid',
+                        // The section is full-width now, so use the extra room
+                        // for several cards per row. `auto-fit` + `minmax(320px, …)`
+                        // collapses back to a single column on narrow desktops
+                        // without a second breakpoint.
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+                        gap: 12,
+                        minWidth: 0,
+                      }}
+                    >
                       {stats.applications.map((application) => (
                         <ApplicationReviewCard
                           key={application.id}

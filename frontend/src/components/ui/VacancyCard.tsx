@@ -1,4 +1,4 @@
-import { EyeOutlined, ExclamationCircleOutlined, EyeInvisibleOutlined } from '@ant-design/icons';
+import { EyeOutlined, SendOutlined, EyeInvisibleOutlined } from '@ant-design/icons';
 import type { VacancyListItem } from '../../types';
 import { palette } from '../../theme/tokens';
 import { StatPill } from '../common/StatPill';
@@ -90,7 +90,9 @@ export const VacancyCard = ({ vacancy, onOpen, showApplicantsAlert = false }: Va
       </div>
       <div style={{ display: 'flex', gap: 14, marginTop: 6 }}>
         <StatPill
-          icon={<ExclamationCircleOutlined />}
+          // Same send-arrow glyph as the "Отклики" stat elsewhere, so the metric
+          // is recognisable at a glance instead of reading as a warning.
+          icon={<SendOutlined />}
           value={vacancy.applicationsCount}
           title="Отклики"
           accent={vacancy.applicationsCount > 0 ? palette.warning : palette.textMuted}

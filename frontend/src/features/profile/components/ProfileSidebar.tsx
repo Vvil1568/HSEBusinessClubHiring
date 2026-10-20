@@ -13,7 +13,7 @@ export const ProfileSidebar = ({ user, totals, compact = false }: ProfileSidebar
   <aside
     style={{
       display: 'flex',
-      flexDirection: compact ? 'column' : 'column',
+      flexDirection: 'column',
       alignItems: compact ? 'center' : 'flex-start',
       gap: 12,
       padding: compact ? 0 : 20,
@@ -21,6 +21,10 @@ export const ProfileSidebar = ({ user, totals, compact = false }: ProfileSidebar
       border: compact ? 'none' : `1px solid ${palette.border}`,
       background: compact ? 'transparent' : palette.surface,
       textAlign: compact ? 'center' : 'left',
+      // Inside the desktop CSS grid the item stretches to the full row height by
+      // default, which made the card run past the last content block. On mobile
+      // the parent is a column flexbox, where `start` would shrink the width.
+      alignSelf: compact ? 'stretch' : 'start',
     }}
   >
     <UserAvatar
