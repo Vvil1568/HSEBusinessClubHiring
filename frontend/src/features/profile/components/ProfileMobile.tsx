@@ -86,7 +86,7 @@ export const ProfileMobile = ({
 
       <div style={{ textAlign: 'center', paddingTop: 4 }}>
         <SectionLink
-          label="посмотреть все"
+          label="Посмотреть все"
           to={
             tab === 'startups'
               ? '/profile/startups'

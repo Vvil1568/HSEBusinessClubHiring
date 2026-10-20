@@ -45,9 +45,6 @@ services:
       context: ./frontend
       dockerfile: Dockerfile.dev
       args:
-        VITE_KEYCLOAK_URL: ${KEYCLOAK_URL}
-        VITE_KEYCLOAK_REALM: ${KEYCLOAK_REALM}
-        VITE_KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID}
         VITE_API_URL: http://localhost:${BACKEND_PORT:-8000}/api/v1
     container_name: app-frontend-dev
     restart: unless-stopped
@@ -60,6 +57,25 @@ services:
     networks:
       - app-network
 
+  dufs:
+    image: sigoden/dufs:latest
+    container_name: app-dufs-dev
+    restart: unless-stopped
+    volumes:
+      - ./data/uploads:/data
+    environment:
+      # Backend authenticates to dufs with these credentials over the internal
+      # network only; they are never exposed to the client bundle.
+      DUFS_AUTH: ${DUFS_AUTH:-}
+    command: >
+      /data
+      --allow-upload
+      --allow-delete
+      --allow-search
+      --hidden "*"
+      --render-index
+    networks:
+      - app-network
 networks:
   app-network:
     name: app-dev-network

@@ -1,13 +1,16 @@
 import type {
   Application,
+  ApplicationFile,
   ApplicationStatus,
   ApplyInput,
   DailyActivityPoint,
+  FileUploadScope,
   PaginatedResult,
   ProfileDashboard,
   Startup,
   StartupInput,
   StartupSummary,
+  StoredFile,
   VacancyDetails,
   VacancyListItem,
   VacancySort,
@@ -15,7 +18,6 @@ import type {
   VacancyTemplate,
   VacancyViewer,
 } from '../../types';
-import { buildLogoDataUri } from '../../utils/logo';
 import {
   findStartup,
   findVacancy,
@@ -33,21 +35,24 @@ import {
   toVacancy,
   toVacancyListItem,
 } from './db';
+import { MockHttpError } from './errors';
+import {
+  assertAttachmentBudget,
+  createStoredFile,
+  findStoredFile,
+  readFileContent,
+  removeStoredFile,
+} from './files';
 import type { DbApplication, DbVacancy } from './types';
 
 export interface MockResult {
   status: number;
   data: unknown;
+  /** Present for binary payloads served by the file proxy. */
+  contentType?: string;
 }
 
-export class MockHttpError extends Error {
-  readonly status: number;
-
-  constructor(status: number, message: string) {
-    super(message);
-    this.status = status;
-  }
-}
+export { MockHttpError };
 
 type QueryParams = Record<string, unknown>;
 
@@ -317,9 +322,9 @@ const createStartup = (payload: StartupInput): Startup => {
   const user = getCurrentUser();
   const now = new Date().toISOString();
   const startupId = `s-${Date.now()}`;
-  const logoUrl =
-    payload.logoUrl ??
-    buildLogoDataUri(payload.title.slice(0, 1).toUpperCase() || 'S', '#2563EB', '#7C3AED');
+  // `null` is a deliberate value ("no logo" → idea bulb), not "not provided":
+  // the backend must never invent a logo the user explicitly removed.
+  const logoUrl = payload.logoUrl;
 
   return mutateDatabase((database) => {
     database.startups.push({
@@ -370,7 +375,10 @@ const updateStartup = (startupId: string, payload: StartupInput): Startup => {
     startup.shortDescription = payload.shortDescription;
     startup.description = payload.description;
     startup.stage = payload.stage;
-    if (payload.logoUrl) startup.logoUrl = payload.logoUrl;
+    // Assign unconditionally: `null` means the owner removed the logo and the
+    // UI must fall back to the idea bulb. Regenerating a placeholder here was
+    // the reason "Убрать логотип" appeared to do nothing.
+    startup.logoUrl = payload.logoUrl;
     startup.updatedAt = now;
 
     const existing = database.vacancies.filter((vacancy) => vacancy.startupId === startupId);
@@ -462,6 +470,26 @@ const applyToVacancy = (vacancyId: string, payload: ApplyInput): Application => 
     throw new MockHttpError(422, 'Добавьте мотивационное письмо');
   }
 
+  const database = getDatabase();
+  const files = payload.files ?? [];
+  assertAttachmentBudget(database, files.length);
+
+  const resolvedFiles: ApplicationFile[] = files.map((file) => {
+    // Every attachment must reference an object created through the file proxy:
+    // the backend never trusts a client supplied name or URL.
+    const stored = findStoredFile(database, file.id);
+    if (!stored || stored.scope === 'startup-logo') {
+      throw new MockHttpError(422, `Файл «${file.name}» не найден в хранилище`);
+    }
+    return {
+      id: stored.id,
+      name: stored.name,
+      size: stored.size,
+      mimeType: stored.mimeType,
+      url: stored.url,
+    };
+  });
+
   const user = getCurrentUser();
   const existing = getVacancyApplications(vacancyId).find(
     (application) => application.applicantId === user.id,
@@ -470,19 +498,63 @@ const applyToVacancy = (vacancyId: string, payload: ApplyInput): Application => 
     throw new MockHttpError(409, 'Вы уже откликнулись на эту вакансию');
   }
 
-  return mutateDatabase((database) => {
+  return mutateDatabase((db) => {
     const application: DbApplication = {
       id: `a-${Date.now()}`,
       vacancyId,
       applicantId: user.id,
       motivation: payload.motivation.trim(),
-      files: payload.files,
+      files: resolvedFiles,
       status: 'pending',
       createdAt: new Date().toISOString(),
     };
-    database.applications.push(application);
+    db.applications.push(application);
     return toApplication(application);
   });
+};
+
+const uploadStoredFile = (body: unknown): StoredFile => {
+  const formData = body as FormData;
+  if (typeof FormData === 'undefined' || !(formData instanceof FormData)) {
+    throw new MockHttpError(400, 'Ожидается multipart/form-data');
+  }
+
+  const rawScope = formData.get('scope');
+  const scope = rawScope === 'startup-logo' ? 'startup-logo' : 'application-attachment';
+  const file = formData.get('file');
+  if (!(file instanceof File)) {
+    throw new MockHttpError(422, 'Файл не передан');
+  }
+
+  return mutateDatabase((database) =>
+    createStoredFile(
+      database,
+      scope as FileUploadScope,
+      { name: file.name, size: file.size, mimeType: file.type || 'application/octet-stream' },
+      file.slice(0, file.size, file.type),
+    ),
+  );
+};
+
+const readStoredFile = (fileId: string): MockResult => {
+  const stored = findStoredFile(getDatabase(), fileId);
+  if (!stored) {
+    throw new MockHttpError(404, 'Файл не найден');
+  }
+
+  const content = readFileContent(fileId);
+  if (!content) {
+    // Metadata survives a reload but the binary does not: the mock cannot
+    // reconstruct bytes it never persisted, the real backend serves them from dufs.
+    throw new MockHttpError(410, 'Содержимое файла доступно только в текущей сессии');
+  }
+
+  return { status: 200, data: content, contentType: stored.mimeType };
+};
+
+const deleteStoredFile = (fileId: string): { deleted: true } => {
+  mutateDatabase((database) => removeStoredFile(database, fileId));
+  return { deleted: true };
 };
 
 const updateApplicationStatus = (
@@ -548,6 +620,19 @@ export const resolveMockRequest = (
 ): MockResult => {
   const normalizedMethod = method.toLowerCase();
   const segments = path.replace(/^\/+|\/+$/g, '').split('/');
+
+  if (normalizedMethod === 'post' && path === '/files/upload') {
+    return { status: 201, data: uploadStoredFile(body) };
+  }
+
+  if (segments[0] === 'files' && segments.length === 2) {
+    if (normalizedMethod === 'get') {
+      return readStoredFile(segments[1]);
+    }
+    if (normalizedMethod === 'delete') {
+      return { status: 200, data: deleteStoredFile(segments[1]) };
+    }
+  }
 
   if (normalizedMethod === 'get' && path === '/auth/me') {
     return { status: 200, data: toApplicant(getCurrentUser()) };

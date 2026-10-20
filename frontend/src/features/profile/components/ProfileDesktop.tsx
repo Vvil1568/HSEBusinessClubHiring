@@ -57,7 +57,7 @@ export const ProfileDesktop = ({
             )}
           </div>
           <div style={{ marginTop: 14 }}>
-            <SectionLink label="посмотреть все" to="/profile/startups" />
+            <SectionLink label="Посмотреть все..." to="/profile/startups" />
           </div>
         </section>
 
@@ -88,7 +88,7 @@ export const ProfileDesktop = ({
               )}
             </div>
             <div style={{ marginTop: 14 }}>
-              <SectionLink label="посмотреть все" to="/profile/vacancies" />
+              <SectionLink label="Посмотреть все..." to="/profile/vacancies" />
             </div>
           </section>
 
@@ -117,7 +117,7 @@ export const ProfileDesktop = ({
               )}
             </div>
             <div style={{ marginTop: 14 }}>
-              <SectionLink label="посмотреть все" to="/profile/applications" />
+              <SectionLink label="Посмотреть все..." to="/profile/applications" />
             </div>
           </section>
         </div>

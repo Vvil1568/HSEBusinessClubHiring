@@ -1,7 +1,9 @@
 import { BulbOutlined } from '@ant-design/icons';
 import { Avatar } from 'antd';
+import { useState } from 'react';
 import type { CSSProperties } from 'react';
 import { palette } from '../../theme/tokens';
+import { useFileSrc } from '../../features/files/api/useFiles';
 
 interface StartupLogoProps {
   title: string;
@@ -11,12 +13,21 @@ interface StartupLogoProps {
 }
 
 export const StartupLogo = ({ title, logoUrl, size = 48, radius = 14 }: StartupLogoProps) => {
+  // Logos live behind the file proxy; the hook resolves them to a renderable
+  // source and yields `null` while loading or when the object is gone.
+  const src = useFileSrc(logoUrl);
+  // A stored logo may be missing (deleted object, lost access). The failed
+  // source is remembered by value, so a new logo starts fresh without an effect.
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+
+  const showImage = Boolean(src) && src !== failedSrc;
+
   const style: CSSProperties = {
     width: size,
     height: size,
     borderRadius: radius,
     flexShrink: 0,
-    background: logoUrl ? 'transparent' : palette.surfaceElevated,
+    background: showImage ? 'transparent' : palette.surfaceElevated,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -24,11 +35,12 @@ export const StartupLogo = ({ title, logoUrl, size = 48, radius = 14 }: StartupL
     border: `1px solid ${palette.border}`,
   };
 
-  if (logoUrl) {
+  if (showImage && src) {
     return (
       <img
-        src={logoUrl}
+        src={src}
         alt={`Логотип ${title}`}
+        onError={() => setFailedSrc(src)}
         style={{ ...style, objectFit: 'cover' }}
       />
     );
@@ -48,17 +60,21 @@ interface UserAvatarProps {
   size?: number;
 }
 
-export const UserAvatar = ({ firstName, lastName, avatarUrl, size = 40 }: UserAvatarProps) => (
-  <Avatar
-    size={size}
-    src={avatarUrl ?? undefined}
-    style={{
-      background: palette.surfaceElevated,
-      color: palette.text,
-      fontWeight: 600,
-      flexShrink: 0,
-    }}
-  >
-    {`${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase()}
-  </Avatar>
-);
+export const UserAvatar = ({ firstName, lastName, avatarUrl, size = 40 }: UserAvatarProps) => {
+  const src = useFileSrc(avatarUrl);
+
+  return (
+    <Avatar
+      size={size}
+      src={src ?? undefined}
+      style={{
+        background: palette.surfaceElevated,
+        color: palette.text,
+        fontWeight: 600,
+        flexShrink: 0,
+      }}
+    >
+      {`${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase()}
+    </Avatar>
+  );
+};

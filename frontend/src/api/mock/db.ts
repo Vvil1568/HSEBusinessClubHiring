@@ -11,14 +11,20 @@ import { buildSeedDatabase } from './seedData';
 import type { DbApplication, DbStartup, DbUser, DbVacancy, MockDatabase } from './types';
 
 const STORAGE_KEY = 'expert-clinic:mock-db';
-const SCHEMA_VERSION = 1;
+// Bumped because the database gained a `files` collection: an older snapshot
+// would deserialize without it and break the file proxy on first read/write.
+const SCHEMA_VERSION = 2;
 
 const loadDatabase = (): MockDatabase => {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as MockDatabase;
-      if (parsed.version === SCHEMA_VERSION && Array.isArray(parsed.startups)) {
+      if (
+        parsed.version === SCHEMA_VERSION &&
+        Array.isArray(parsed.startups) &&
+        Array.isArray(parsed.files)
+      ) {
         return parsed;
       }
     }

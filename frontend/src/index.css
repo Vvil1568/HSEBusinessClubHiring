@@ -17,11 +17,22 @@ body,
 #root {
   min-height: 100%;
   margin: 0;
+  max-width: 100%;
 }
 
 body {
   background: #080c14;
   overflow-x: hidden;
+}
+
+/*
+ * `overflow-x: hidden` on <body> alone does not stop iOS Safari from panning a
+ * wider document, because the scrolling element is <html>. `clip` on <html>
+ * prevents the page from being scrolled sideways when a single card overflows,
+ * which is what pushed the stats cards past the screen edge on iPhone.
+ */
+html {
+  overflow-x: clip;
 }
 
 button {

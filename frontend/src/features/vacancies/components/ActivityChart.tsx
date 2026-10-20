@@ -18,8 +18,8 @@ export const ActivityChart = ({ data, height = 220 }: ActivityChartProps) => {
   const chartHeight = height - 42;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div style={{ display: 'flex', gap: 18, fontSize: 12, color: palette.textSecondary }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
+      <div style={{ display: 'flex', gap: 18, fontSize: 12, color: palette.textSecondary, flexWrap: 'wrap' }}>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <span style={{ width: 10, height: 10, borderRadius: 3, background: palette.primaryHover }} />
           Просмотры
@@ -30,73 +30,82 @@ export const ActivityChart = ({ data, height = 220 }: ActivityChartProps) => {
         </span>
       </div>
 
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'flex-end',
-          gap: 6,
-          height,
-          padding: '0 4px',
-          borderBottom: `1px solid ${palette.border}`,
-        }}
-      >
-        {data.map((point) => {
-          const viewsHeight = Math.max(2, Math.round((point.views / max) * chartHeight));
-          const applicationsHeight = Math.max(2, Math.round((point.applications / max) * chartHeight));
+      {/* Horizontal scroll keeps 14 extra-thin bars readable on a 320 px
+          screen without widening the page: the overflow stays inside this box. */}
+      <div style={{ overflowX: 'auto', overflowY: 'hidden', minWidth: 0 }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'flex-end',
+            gap: 6,
+            height,
+            padding: '0 4px',
+            borderBottom: `1px solid ${palette.border}`,
+            minWidth: '100%',
+            boxSizing: 'border-box',
+          }}
+        >
+          {data.map((point) => {
+            const viewsHeight = Math.max(2, Math.round((point.views / max) * chartHeight));
+            const applicationsHeight = Math.max(
+              2,
+              Math.round((point.applications / max) * chartHeight),
+            );
 
-          return (
-            <Tooltip
-              key={point.date}
-              title={`${formatDay(point.date)} · просмотры: ${point.views}, отклики: ${point.applications}`}
-            >
-              <div
-                style={{
-                  flex: 1,
-                  minWidth: 14,
-                  display: 'flex',
-                  alignItems: 'flex-end',
-                  gap: 2,
-                  height: chartHeight,
-                  position: 'relative',
-                }}
+            return (
+              <Tooltip
+                key={point.date}
+                title={`${formatDay(point.date)} · просмотры: ${point.views}, отклики: ${point.applications}`}
               >
                 <div
                   style={{
-                    width: '50%',
-                    height: viewsHeight,
-                    borderRadius: '4px 4px 0 0',
-                    background: `linear-gradient(180deg, ${palette.primaryHover}, ${palette.primary})`,
+                    flex: '1 0 10px',
+                    minWidth: 10,
+                    display: 'flex',
+                    alignItems: 'flex-end',
+                    gap: 2,
+                    height: chartHeight,
+                    position: 'relative',
                   }}
-                />
-                <div
-                  style={{
-                    width: '50%',
-                    height: applicationsHeight,
-                    borderRadius: '4px 4px 0 0',
-                    background: `linear-gradient(180deg, ${palette.warning}, #B45309)`,
-                  }}
-                />
-              </div>
-            </Tooltip>
-          );
-        })}
-      </div>
+                >
+                  <div
+                    style={{
+                      width: '50%',
+                      height: viewsHeight,
+                      borderRadius: '4px 4px 0 0',
+                      background: `linear-gradient(180deg, ${palette.primaryHover}, ${palette.primary})`,
+                    }}
+                  />
+                  <div
+                    style={{
+                      width: '50%',
+                      height: applicationsHeight,
+                      borderRadius: '4px 4px 0 0',
+                      background: `linear-gradient(180deg, ${palette.warning}, #B45309)`,
+                    }}
+                  />
+                </div>
+              </Tooltip>
+            );
+          })}
+        </div>
 
-      <div style={{ display: 'flex', gap: 6, padding: '0 4px' }}>
-        {data.map((point, index) => (
-          <span
-            key={point.date}
-            style={{
-              flex: 1,
-              minWidth: 14,
-              textAlign: 'center',
-              fontSize: 10,
-              color: palette.textMuted,
-            }}
-          >
-            {index % 2 === 0 ? formatDay(point.date) : ''}
-          </span>
-        ))}
+        <div style={{ display: 'flex', gap: 6, padding: '0 4px', minWidth: '100%', boxSizing: 'border-box' }}>
+          {data.map((point, index) => (
+            <span
+              key={point.date}
+              style={{
+                flex: '1 0 10px',
+                minWidth: 10,
+                textAlign: 'center',
+                fontSize: 10,
+                color: palette.textMuted,
+              }}
+            >
+              {index % 2 === 0 ? formatDay(point.date) : ''}
+            </span>
+          ))}
+        </div>
       </div>
     </div>
   );

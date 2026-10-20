@@ -1,5 +1,3 @@
-import type { ApplicationFile } from '../types';
-
 const STORAGE_PREFIX = 'expert-clinic:draft';
 
 export const persistDraft = (key: string, value: string): void => {
@@ -31,10 +29,3 @@ export const formatFileSize = (size: number): string => {
   if (size < 1024 * 1024) return `${Math.round(size / 1024)} КБ`;
   return `${(size / (1024 * 1024)).toFixed(1)} МБ`;
 };
-
-export const mapFileToAttachment = (file: File): ApplicationFile => ({
-  id: `${file.name}-${file.size}-${file.lastModified}`,
-  name: file.name,
-  size: file.size,
-  url: null,
-});

@@ -40,9 +40,6 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        VITE_KEYCLOAK_URL: ${KEYCLOAK_URL}
-        VITE_KEYCLOAK_REALM: ${KEYCLOAK_REALM}
-        VITE_KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID}
         VITE_API_URL: ${PUBLIC_BASE_URL}/api/v1
     container_name: app-frontend-prod
     restart: unless-stopped
@@ -52,6 +49,23 @@ services:
       - app-internal-network
       - router_default
 
+  dufs:
+    image: sigoden/dufs:latest
+    container_name: app-dufs-prod
+    restart: unless-stopped
+    volumes:
+      - ./data/uploads:/data
+    environment:
+      DUFS_AUTH: ${DUFS_AUTH:-}
+    command: >
+      /data
+      --allow-upload
+      --allow-delete
+      --allow-search
+      --hidden "*"
+      --render-index
+    networks:
+      - app-internal-network
 networks:
   app-internal-network:
     name: app-prod-network

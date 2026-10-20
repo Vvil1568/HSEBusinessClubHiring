@@ -558,6 +558,9 @@ export const buildSeedDatabase = (): MockDatabase => {
     applications,
     views: uniqueViews,
     templates,
+    // Seeded applications reference demo file names only; no storage object
+    // exists for them, which the UI shows as a non-downloadable chip.
+    files: [],
   };
 };
 

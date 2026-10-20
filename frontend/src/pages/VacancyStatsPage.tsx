@@ -76,28 +76,60 @@ export const VacancyStatsPage = () => {
       <div
         style={{
           display: 'flex',
+          // Wraps on narrow screens: the logo + title + two stats pills no
+          // longer fit in one row on a 393 px viewport.
+          flexWrap: 'wrap',
           alignItems: 'center',
-          gap: 16,
-          padding: 18,
+          gap: isMobile ? 12 : 16,
+          padding: isMobile ? 14 : 18,
           borderRadius: 16,
           border: `1px solid ${palette.border}`,
           background: palette.surface,
           marginBottom: 20,
+          minWidth: 0,
+          maxWidth: '100%',
+          boxSizing: 'border-box',
         }}
       >
         <StartupLogo
           title={stats.startupTitle}
           logoUrl={stats.startupLogoUrl}
-          size={60}
+          size={isMobile ? 48 : 60}
           radius={16}
         />
-        <div style={{ flex: 1, minWidth: 180 }}>
-          <div style={{ color: palette.textSecondary, fontSize: 12 }}>{stats.startupTitle}</div>
-          <div style={{ color: palette.text, fontSize: 18, fontWeight: 700 }}>
+        <div style={{ flex: '1 1 160px', minWidth: 0 }}>
+          <div
+            style={{
+              color: palette.textSecondary,
+              fontSize: 12,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {stats.startupTitle}
+          </div>
+          <div
+            style={{
+              color: palette.text,
+              fontSize: isMobile ? 16 : 18,
+              fontWeight: 700,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
             {stats.vacancyTitle}
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 18 }}>
+        <div
+          style={{
+            display: 'flex',
+            gap: 18,
+            flexShrink: 0,
+            flexWrap: 'wrap',
+            marginLeft: 'auto',
+          }}
+        >
           <StatPill icon={<EyeOutlined />} value={stats.totalViews} title="Просмотры" />
           <StatPill
             icon={<SendOutlined />}
@@ -111,17 +143,23 @@ export const VacancyStatsPage = () => {
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1fr) 360px',
+          // `1fr` resolves to minmax(auto, 1fr) and is floored by content, which
+          // is how the chart card escaped the viewport. minmax(0, ...) forbids it.
+          gridTemplateColumns: isMobile ? 'minmax(0, 1fr)' : 'minmax(0, 1fr) 360px',
           gap: 20,
           alignItems: 'start',
+          minWidth: 0,
         }}
       >
         <section
           style={{
-            padding: 20,
+            padding: isMobile ? 14 : 20,
             borderRadius: 16,
             border: `1px solid ${palette.border}`,
             background: palette.surface,
+            minWidth: 0,
+            maxWidth: '100%',
+            boxSizing: 'border-box',
           }}
         >
           <h2 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 600 }}>
@@ -136,6 +174,9 @@ export const VacancyStatsPage = () => {
             borderRadius: 16,
             border: `1px solid ${palette.border}`,
             background: palette.surface,
+            minWidth: 0,
+            maxWidth: '100%',
+            boxSizing: 'border-box',
           }}
         >
           <Collapse

@@ -45,9 +45,13 @@ export interface VacancyListQuery extends PaginationParams {
 }
 
 export interface ApplicationFile {
+  /** Server generated UUID — the object key in the file storage. */
   id: string;
+  /** Original file name, stored as metadata only. */
   name: string;
   size: number;
+  mimeType?: string | null;
+  /** Download URL through the backend proxy, `null` for legacy demo records. */
   url: string | null;
 }
 

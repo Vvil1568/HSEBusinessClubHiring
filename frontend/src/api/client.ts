@@ -11,6 +11,11 @@ const delay = (): Promise<void> =>
   });
 
 const parsePayload = (data: unknown): unknown => {
+  // multipart/form-data is passed through untouched so the mock can inspect
+  // the FormData instance and read the raw File.
+  if (typeof FormData !== 'undefined' && data instanceof FormData) {
+    return data;
+  }
   if (typeof data === 'string') {
     try {
       return JSON.parse(data) as unknown;
@@ -36,7 +41,11 @@ const mockAdapter: AxiosAdapter = async (config: InternalAxiosRequestConfig): Pr
       data: result.data,
       status: result.status,
       statusText: 'OK',
-      headers: {},
+      // Binary payloads from the file proxy carry their own content type so
+      // `responseType: 'blob'` consumers can rebuild a properly typed Blob.
+      headers: result.contentType
+        ? { 'content-type': result.contentType, 'content-length': String((result.data as Blob).size) }
+        : {},
       config,
     };
   } catch (error) {
@@ -64,6 +73,12 @@ export const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
   adapter: mockAdapter,
 });
+
+/**
+ * True while requests are served by the in-browser mock instead of a real
+ * backend. Used for things the mock cannot emulate (transport progress events).
+ */
+export const isMockApi = (): boolean => api.defaults.adapter === mockAdapter;
 
 export const extractErrorMessage = (error: unknown): string => {
   if (error instanceof AxiosError) {

@@ -1,16 +1,64 @@
-import { CheckOutlined, CloseOutlined, FileOutlined } from '@ant-design/icons';
-import { Button, Popconfirm } from 'antd';
-import type { Application } from '../../../types';
+import { CheckOutlined, CloseOutlined, DownloadOutlined, FileOutlined } from '@ant-design/icons';
+import { App, Button, Popconfirm, Tooltip } from 'antd';
+import type { Application, ApplicationFile } from '../../../types';
 import { palette, statusLabels } from '../../../theme/tokens';
 import { UserAvatar } from '../../../components/common/StartupLogo';
 import { StatusTag } from '../../../components/common/StatusTag';
 import { formatFileSize } from '../../../utils/drafts';
+import { useDownloadFile } from '../../files/api/useFiles';
 
 interface ApplicationReviewCardProps {
   application: Application;
   isUpdating: boolean;
   onUpdateStatus: (applicationId: string, status: 'approved' | 'rejected') => void;
 }
+
+const AttachmentChip = ({ file }: { file: ApplicationFile }) => {
+  const { message } = App.useApp();
+  const { download, downloadingId } = useDownloadFile();
+  const isLegacy = !file.url;
+  const isLoading = downloadingId === file.id;
+
+  return (
+    <Tooltip title={isLegacy ? 'Демо-файл без содержимого' : `Скачать ${file.name}`}>
+      <button
+        type="button"
+        disabled={isLegacy || isLoading}
+        onClick={() => {
+          void download(file).catch(() => message.error('Не удалось скачать файл'));
+        }}
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 6,
+          maxWidth: '100%',
+          padding: '4px 10px',
+          borderRadius: 999,
+          border: `1px solid ${palette.border}`,
+          background: palette.surfaceMuted,
+          fontSize: 12,
+          color: isLegacy ? palette.textMuted : palette.textSecondary,
+          cursor: isLegacy ? 'not-allowed' : 'pointer',
+          opacity: isLegacy ? 0.7 : 1,
+          font: 'inherit',
+        }}
+      >
+        <FileOutlined />
+        <span
+          style={{
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {file.name}
+        </span>
+        <span style={{ opacity: 0.75 }}>· {formatFileSize(file.size)}</span>
+        {isLegacy ? null : <DownloadOutlined style={{ opacity: isLoading ? 0.4 : 1 }} />}
+      </button>
+    </Tooltip>
+  );
+};
 
 export const ApplicationReviewCard = ({
   application,
@@ -29,6 +77,7 @@ export const ApplicationReviewCard = ({
         borderRadius: 16,
         border: `1px solid ${palette.border}`,
         background: palette.surface,
+        minWidth: 0,
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -54,30 +103,15 @@ export const ApplicationReviewCard = ({
       </p>
 
       {application.files.length > 0 ? (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, minWidth: 0 }}>
           {application.files.map((file) => (
-            <span
-              key={file.id}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '4px 10px',
-                borderRadius: 999,
-                border: `1px solid ${palette.border}`,
-                background: palette.surfaceMuted,
-                fontSize: 12,
-                color: palette.textSecondary,
-              }}
-            >
-              <FileOutlined /> {file.name} · {formatFileSize(file.size)}
-            </span>
+            <AttachmentChip key={file.id} file={file} />
           ))}
         </div>
       ) : null}
 
       {isPending ? (
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <Button
             type="primary"
             size="small"

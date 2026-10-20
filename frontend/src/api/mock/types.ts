@@ -1,9 +1,17 @@
 import type {
   ApplicationFile,
   ApplicationStatus,
+  FileUploadScope,
   StartupStage,
+  StoredFile,
   VacancyTemplate,
 } from '../../types';
+
+export interface DbStoredFile extends StoredFile {
+  scope: FileUploadScope;
+  /** Object key inside the storage bucket, e.g. `startup-logos/<uuid>`. */
+  storageKey: string;
+}
 
 export interface DbUser {
   id: string;
@@ -65,4 +73,6 @@ export interface MockDatabase {
   applications: DbApplication[];
   views: DbView[];
   templates: VacancyTemplate[];
+  /** File metadata mirroring the backend file index. */
+  files: DbStoredFile[];
 }
