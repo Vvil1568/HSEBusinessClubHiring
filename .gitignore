@@ -1,0 +1,46 @@
+# === Секреты и сертификаты ===
+*.env
+*.env.*
+!.env.example
+*.pem
+*.key
+*.cert
+*.p12
+
+# === Python ===
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
+
+# === Frontend (React / Vite) ===
+node_modules/
+dist/
+dist-ssr/
+.vite/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# === Данные локальных БД ===
+postgres_data/
+*.db
+*.sqlite3
+
+# === IDE & OS ===
+.idea/
+.DS_Store
+Thumbs.db
+[Dd]esktop.ini

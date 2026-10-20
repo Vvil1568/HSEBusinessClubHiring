@@ -1,0 +1,33 @@
+# === Python & Backend Artifacts ===
+backend/.venv/
+backend/**/__pycache__/
+backend/**/*.pyc
+backend/**/*.pyo
+backend/**/*.pyd
+backend/.pytest_cache/
+backend/.mypy_cache/
+backend/.ruff_cache/
+backend/htmlcov/
+backend/.coverage
+*.egg-info/
+
+# === Frontend & Node Artifacts ===
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/package-lock.json
+frontend/pnpm-lock.yaml
+frontend/yarn.lock
+
+# === Базы данных и дампы ===
+*.sql.gz
+*.dump
+postgres_data/
+
+# === Системные файлы и секреты ===
+.git/
+.idea/
+.vscode/
+*.log
+.env
+.env.*
