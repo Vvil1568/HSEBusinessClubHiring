@@ -1,6 +1,7 @@
 import { EyeOutlined, SendOutlined, SolutionOutlined } from '@ant-design/icons';
 import type { Startup } from '../../../types';
 import { palette, stageColors, stageLabels } from '../../../theme/tokens';
+import { getUserDisplayName } from '../../../utils/format';
 import { StartupLogo } from '../../../components/common/StartupLogo';
 import { StatPill } from '../../../components/common/StatPill';
 
@@ -54,7 +55,7 @@ export const StartupHero = ({ startup, compact = false }: StartupHeroProps) => (
           {stageLabels[startup.stage]}
         </span>
         <span style={{ color: palette.textMuted, fontSize: 12 }}>
-          Автор: {startup.owner.firstName} {startup.owner.lastName}
+          Автор: {getUserDisplayName(startup.owner)}
         </span>
       </div>
       <div style={{ display: 'flex', gap: 18, marginTop: 12 }}>

@@ -8,12 +8,18 @@ import type {
   VacancyListItem,
 } from '../../types';
 import { buildSeedDatabase } from './seedData';
-import type { DbApplication, DbStartup, DbUser, DbVacancy, MockDatabase } from './types';
+import {
+  MOCK_DB_VERSION,
+  type DbApplication,
+  type DbStartup,
+  type DbUser,
+  type DbVacancy,
+  type MockDatabase,
+} from './types';
 
-const STORAGE_KEY = 'expert-clinic:mock-db';
-// Bumped because the database gained a `files` collection: an older snapshot
-// would deserialize without it and break the file proxy on first read/write.
-const SCHEMA_VERSION = 2;
+const STORAGE_KEY = 'business-club:mock-db';
+// Stored snapshot is re-seeded whenever the schema version changes.
+const SCHEMA_VERSION = MOCK_DB_VERSION;
 
 const loadDatabase = (): MockDatabase => {
   try {
@@ -65,10 +71,10 @@ export const getCurrentUser = (): DbUser => {
 
 export const toApplicant = (user: DbUser): Applicant => ({
   id: user.id,
+  telegramId: user.telegramId,
   firstName: user.firstName,
   lastName: user.lastName,
-  nick: user.nick,
-  avatarUrl: user.avatarUrl,
+  photoUrl: user.photoUrl,
 });
 
 export const findStartup = (id: string): DbStartup | undefined =>
@@ -160,7 +166,13 @@ export const toApplication = (application: DbApplication): Application => {
     startupLogoUrl: startup?.logoUrl ?? null,
     applicant: applicant
       ? toApplicant(applicant)
-      : { id: application.applicantId, firstName: 'Пользователь', lastName: '', nick: 'unknown', avatarUrl: null },
+      : {
+          id: application.applicantId,
+          telegramId: 0,
+          firstName: 'Пользователь',
+          lastName: '',
+          photoUrl: null,
+        },
     motivation: application.motivation,
     files: application.files,
     status: application.status,
@@ -183,9 +195,6 @@ export const toUserProfile = (user: DbUser): UserProfile => {
 
   return {
     ...toApplicant(user),
-    email: user.email,
-    position: user.position,
-    company: user.company,
     startupsCount: startups.length,
     vacanciesCount: vacancies.length,
     applicationsCount: applications.length,

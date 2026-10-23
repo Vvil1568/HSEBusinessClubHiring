@@ -4,15 +4,14 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 
-ARG VITE_KEYCLOAK_URL
-ARG VITE_KEYCLOAK_REALM
-ARG VITE_KEYCLOAK_CLIENT_ID
-ARG VITE_API_URL
+# The Mini App has no external IdP: Telegram `initData` is the only entry
+# point. Keycloak variables were removed on purpose so they cannot creep back
+# into the bundle.
+ARG VITE_API_URL=/api/v1
+ARG VITE_USE_MOCK=0
 
-ENV VITE_KEYCLOAK_URL=$VITE_KEYCLOAK_URL
-ENV VITE_KEYCLOAK_REALM=$VITE_KEYCLOAK_REALM
-ENV VITE_KEYCLOAK_CLIENT_ID=$VITE_KEYCLOAK_CLIENT_ID
 ENV VITE_API_URL=$VITE_API_URL
+ENV VITE_USE_MOCK=$VITE_USE_MOCK
 
 COPY . .
 RUN npm run build

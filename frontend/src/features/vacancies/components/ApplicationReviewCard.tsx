@@ -1,6 +1,7 @@
 import { CheckOutlined, CloseOutlined, DownloadOutlined, FileOutlined } from '@ant-design/icons';
 import { App, Button, Popconfirm, Tooltip } from 'antd';
 import type { Application, ApplicationFile } from '../../../types';
+import { getUserDisplayName } from '../../../utils/format';
 import { palette, statusLabels } from '../../../theme/tokens';
 import { UserAvatar } from '../../../components/common/StartupLogo';
 import { StatusTag } from '../../../components/common/StatusTag';
@@ -84,15 +85,13 @@ export const ApplicationReviewCard = ({
         <UserAvatar
           firstName={application.applicant.firstName}
           lastName={application.applicant.lastName}
-          avatarUrl={application.applicant.avatarUrl}
+          photoUrl={application.applicant.photoUrl}
           size={42}
         />
         <div style={{ flex: 1, minWidth: 0 }}>
+          {/* No nick, email or position: the profile is Telegram data. */}
           <div style={{ fontSize: 14, fontWeight: 600 }}>
-            {application.applicant.firstName} {application.applicant.lastName}
-          </div>
-          <div style={{ fontSize: 12, color: palette.textSecondary }}>
-            @{application.applicant.nick}
+            {getUserDisplayName(application.applicant)}
           </div>
         </div>
         <StatusTag status={application.status} />

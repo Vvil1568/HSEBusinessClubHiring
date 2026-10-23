@@ -64,7 +64,9 @@ export const createStoredFile = (
     name: input.name,
     size: input.size,
     mimeType: input.mimeType,
-    url: `/api/files/${id}`,
+    // Canonical contract path. `useFileSrc` extracts the UUID and fetches the
+    // bytes via axios, so the `/api` vs `/api/v1` prefix does not matter.
+    url: `/api/v1/files/${id}`,
     createdAt: new Date().toISOString(),
     scope,
     storageKey: `${scopePrefix(scope)}/${id}`,

@@ -1,0 +1,2455 @@
+﻿openapi: 3.0.3
+
+info:
+  title: Business Club · Hiring Platform API
+  version: 1.0.0
+  description: |
+    Backend contract for the Business Club hiring **Telegram Mini App**.
+
+    # Назначение
+
+    Спецификация описывает **минимально необходимый набор эндпойнтов**, который должен реализовать
+    backend, чтобы фронтенд (`frontend/`, React SPA, запускаемый внутри Telegram) работал без
+    изменений.
+
+    Источники истины, из которых собрана эта спецификация:
+      - `frontend/src/types/*.ts` — транспортные типы (request/response);
+      - `frontend/src/telegram/webApp.ts` — источник `initData` и обёртка над `Telegram.WebApp`;
+      - `frontend/src/api/mock/server.ts` — маршруты и семантика in-browser mock-сервера;
+      - `frontend/src/api/files.ts` и `frontend/src/api/mock/files.ts` — политика файлового хранилища;
+      - `frontend/vite.config.ts`, `frontend/nginx.conf`, `docker-compose.yml` — префиксы и проксирование;
+      - `docs/database/erd.puml` — ограничения полей и словари значений.
+
+    # Базовый путь
+
+    Платформенный контракт публикуется под `/api/v1`. Vite dev-proxy и nginx (`location /api/`)
+    передают запрос в backend; backend обязан обслуживать `/api/v1` и сохранять обратную
+    совместимость с `/api`. Ниже пути указаны относительно `servers[].url`.
+
+    # Аутентификация: Telegram Mini App
+
+    Приложение **не имеет** формы логина, пароля, OAuth-редиректов и внешнего IdP
+    (Keycloak и подобные не используются). Единственный источник идентичности — строка
+    `Telegram.WebApp.initData`, подписанная ботом:
+
+      1. клиент отправляет `POST /auth/telegram` с `{ "initData": "<сырая строка>" }`;
+      2. backend проверяет HMAC-SHA256 (`TELEGRAM_BOT_TOKEN`, ключ `WebAppData`), свежесть
+         `auth_date` (по умолчанию ≤ 86400 с) и однократность подписи (`hash` / `query_id`);
+      3. выполняется upsert по `telegram_id`, выдаётся сессия: HttpOnly-cookie `hb_session`
+         (`Secure; SameSite=Lax; Path=/`) и/или заголовок `X-Telegram-Init-Data` на каждый запрос;
+      4. `401` возвращается только как JSON `{ "message": ... }` — **никогда** как `302` на IdP;
+         при `401` клиент считает `initData` недействительным и требует перезапуска Mini App.
+
+    Демо/mock-режим (`VITE_USE_MOCK=1`) не является отдельным способом авторизации: он проходит
+    тот же маршрут `/auth/telegram` с заглушкой, поэтому UI-ветки совпадают с production.
+
+    Владелец ресурса определяется **только** по аутентифицированному пользователю — никогда по
+    телу запроса или query-параметру.
+
+    # Формат данных
+
+      - Идентификаторы — UUID. В примерах ниже используются короткие читаемые значения
+        (`s-1`, `v-1`, `u-anna`) — идентификатор считается **непрозрачной строкой**, поэтому
+        `format: uuid` в спецификации не навязывается.
+      - Даты и время — ISO 8601 UTC (`2026-10-20T18:24:00.000Z`), даты без времени — `YYYY-MM-DD`.
+      - Денежные суммы и вознаграждение — свободный текст (`"от 250 000 ₽, опционы"`), не число.
+      - Все списки — объект пагинации `{ items, total, page, pageSize }`.
+      - Ошибки — всегда `{ "message": "<текст для пользователя>" }`, текст показывается в UI как есть.
+      - Профиль пользователя содержит только данные Telegram: `telegramId`, `firstName`,
+        `lastName`, `photoUrl`. Ник, email, должность и компания не хранятся и не возвращаются.
+
+    # Пагинация
+
+    `page` — 1-based. `pageSize` по умолчанию: 6 для стартапов и вакансий, 10 для откликов.
+    Максимум — 100 (фронтенд запрашивает `pageSize=100`, чтобы получить «все» свои вакансии).
+    Некорректные или неположительные значения трактуются как значения по умолчанию.
+
+    # Файлы
+
+    Браузер **никогда** не обращается к dufs напрямую. Backend — единственный клиент хранилища и
+    отвечает за:
+      - авторизацию (кто может читать/удалять объект);
+      - валидацию (размер, MIME, количество);
+      - генерацию ключа объекта (UUID, имя файла — только метаданные);
+      - проксирование PUT/GET/DELETE в dufs.
+
+    Публичный URL объекта всегда строится от `PUBLIC_BASE_URL` и имеет вид
+    `/api/v1/files/{uuid}`. Клиентские URL-ы (например, `logoUrl` при сохранении стартапа)
+    принимаются только как **ссылка на уже загруженный объект**: backend извлекает UUID,
+    проверяет владельца и `scope`, а не сохраняет строку как есть.
+
+    Аватары пользователей не проксируются: `photoUrl` — это `photo_url` из Telegram, внешняя
+    ссылка на CDN Telegram. `X-Telegram-Init-Data` и cookie к ней не применяются.
+
+    # Совместимость с mock-сервером
+
+    Mock включается **только** через `VITE_USE_MOCK=1` (см. `frontend/src/api/client.ts`); по
+    умолчанию SPA работает с реальным backend. Mock реализует те же маршруты, включая
+    `POST /auth/telegram`, поэтому UI-ветки авторизации совпадают. Особые случаи, воспроизведённые
+    намеренно:
+      - `POST /vacancies/{id}/view` идемпотентен в пределах календарного дня (UTC);
+      - `GET /files/{id}` в демо-режиме отдаёт `410 Gone`, если байты не сохранились между перезагрузками;
+      - превышение общего бюджета хранилища — `507 Insufficient Storage`.
+
+    # Окружение backend
+
+    Обязательные переменные:
+      - `TELEGRAM_BOT_TOKEN` — секрет бота, только на сервере (никогда в бандле SPA);
+      - `INIT_DATA_MAX_AGE` — допустимый возраст `auth_date`, по умолчанию `86400`;
+      - `SESSION_TTL` — время жизни cookie `hb_session`, по умолчанию `86400`;
+      - `SESSION_SECRET` — ключ подписи сессии (если cookie подписывается JWT/itsdangerous);
+      - `PUBLIC_BASE_URL` — база для сборки `url`/`logoUrl` (`{PUBLIC_BASE_URL}/api/v1/files/{uuid}`);
+      - `CORS_ALLOWED_ORIGINS` — точный origin Mini App; при cookie обязательны
+        `Access-Control-Allow-Credentials: true` и явный origin (никогда `*`).
+
+  contact:
+    name: Hiring Platform backend team
+  license:
+    name: Proprietary
+
+servers:
+  - url: /api/v1
+    description: |
+      Production / платформенный контракт (см. `VITE_API_URL` в `docker-compose.yml`).
+  - url: /api
+    description: |
+      Обратная совместимость: Vite dev-proxy (`vite.config.ts`) и nginx `location /api/`.
+
+security:
+  # Любой из двух механизмов достаточен. Клиент отправляет оба: cookie нужен
+  # для `<img src>` и скачивания вложений, заголовок — для остальных запросов.
+  - telegramInitData: []
+  - sessionCookie: []
+
+tags:
+  - name: Auth
+    description: |
+      Аутентификация Telegram Mini App. `POST /auth/telegram` обменивает подписанный `initData`
+      на серверную сессию, `GET /auth/me` отдаёт текущего пользователя для шапки и проверки
+      владения стартапом/вакансией.
+  - name: Profile
+    description: |
+      Личный кабинет: агрегированный дашборд и списки «моих» сущностей. Эти эндпойнты нужны, чтобы
+      отрисовать профиль одним запросом и не собирать статистику на клиенте.
+  - name: Startups
+    description: |
+      Каталог стартапов и редактирование собственного стартапа вместе с его вакансиями.
+      Вакансии входят в payload стартапа: сохранение выполняется одним атомарным запросом.
+  - name: Vacancies
+    description: |
+      Каталог вакансий, карточка вакансии, справочники (названия и шаблоны), трекинг просмотров,
+      отклик и статистика для владельца.
+  - name: Applications
+    description: |
+      Отклики соискателя («мои») и входящие отклики владельца стартапа («инбокс»),
+      а также модерация статуса.
+  - name: Files
+    description: |
+      Прокси файлового хранилища (dufs). Загрузка логотипов стартапов и вложений к откликам,
+      чтение и удаление объектов по UUID.
+
+paths:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Auth
+  # ─────────────────────────────────────────────────────────────────────────────
+  /auth/telegram:
+    post:
+      tags: [Auth]
+      operationId: createTelegramSession
+      summary: Обменять initData на сессию
+      description: |
+        Единственный вход в приложение. Принимает сырую строку `Telegram.WebApp.initData`
+        (`query_id=...&user=<urlencoded json>&auth_date=...&hash=...`).
+
+        Backend обязан:
+          1. собрать `data_check_string` из всех полей кроме `hash`, отсортированных по имени;
+          2. вычислить `HMAC-SHA256(secret_key, data_check_string)`, где
+             `secret_key = HMAC-SHA256("WebAppData", TELEGRAM_BOT_TOKEN)`, и сравнить с `hash`
+             в постоянном времени;
+          3. проверить `auth_date`: `now - auth_date <= INIT_DATA_MAX_AGE` (по умолчанию 86400 с);
+          4. зафиксировать хэш подписи (`hash`, либо `query_id` при наличии) в
+             `telegram_auth_nonces`, чтобы предотвратить повторное использование
+             той же строки (replay protection);
+          5. выполнить upsert пользователя по `telegram_id` и обновить `first_name`, `last_name`,
+             `photo_url` из Telegram (ник/email/должность/компания не запрашиваются и не хранятся);
+          6. создать сессию и вернуть `Set-Cookie: hb_session=...; HttpOnly; Secure; SameSite=Lax; Path=/`.
+
+        После успеха фронтенд рендерит приложение; до этого запросы не отправляются.
+      security: []
+      x-frontend:
+        hook: useTelegramAuth
+        file: frontend/src/features/auth/api/useTelegramAuth.ts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [initData]
+              properties:
+                initData:
+                  type: string
+                  maxLength: 8192
+                  description: Поле `window.Telegram.WebApp.initData` без изменений.
+                  example: 'query_id=AAHdF6IQAAAAAN0XohDhrOrc&user=%7B%22id%22%3A279058397%2C%22first_name%22%3A%22%D0%90%D0%BD%D0%BD%D0%B0%22%7D&auth_date=1761000000&hash=8f5c1b0f9a1e...'
+      responses:
+        '200':
+          description: Сессия создана
+          headers:
+            Set-Cookie:
+              description: HttpOnly-сессия; именно она авторизует `<img src>` и скачивание файлов.
+              schema:
+                type: string
+              example: hb_session=eyJ...; HttpOnly; Secure; SameSite=Lax; Path=/
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TelegramSession'
+              examples:
+                authorized:
+                  summary: Пользователь вошёл
+                  value:
+                    user:
+                      id: u-anna
+                      telegramId: 279058397
+                      firstName: Анна
+                      lastName: Смирнова
+                      photoUrl: https://t.me/i/userpic/320/anna.jpg
+                      startupsCount: 1
+                      vacanciesCount: 3
+                      applicationsCount: 2
+                    expiresAt: '2026-10-22T08:00:00.000Z'
+        '401':
+          description: |
+            `initData` отсутствует, подпись не совпала, `auth_date` просрочен или строка
+            уже была использована ранее. Ответ — всегда JSON, без редиректов.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                noInitData:
+                  value:
+                    message: Откройте приложение через Telegram
+                badSignature:
+                  value:
+                    message: Не удалось проверить данные Telegram
+                expired:
+                  value:
+                    message: Сессия Telegram истекла, откройте приложение заново
+        '403':
+          description: Пользователь заблокирован (`users.is_active = false`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                blocked:
+                  value:
+                    message: Доступ к приложению закрыт
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      operationId: getCurrentUser
+      summary: Текущий пользователь
+      description: |
+        Усечённый профиль (`Applicant`) без счётчиков. Данные берутся из сессии, а не из тела
+        запроса. Используется в шапке и для определения `isOwner` на страницах стартапа и вакансии.
+      x-frontend:
+        hook: useCurrentUser
+        file: frontend/src/features/auth/api/useCurrentUser.ts
+        cache: 'staleTime: 5 минут; при 401 приложение требует перезапуска Mini App'
+      responses:
+        '200':
+          description: Текущий пользователь
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Applicant'
+              examples:
+                currentUser:
+                  summary: Пользователь из Telegram
+                  value:
+                    id: u-anna
+                    telegramId: 279058397
+                    firstName: Анна
+                    lastName: Смирнова
+                    photoUrl: https://t.me/i/userpic/320/anna.jpg
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Profile
+  # ─────────────────────────────────────────────────────────────────────────────
+  /profile/dashboard:
+    get:
+      tags: [Profile]
+      operationId: getProfileDashboard
+      summary: Дашборд личного кабинета
+      description: |
+        Один запрос отдаёт всё, что нужно главной странице профиля:
+          - `user` — полный профиль со счётчиками;
+          - `recentStartups` — до 6 последних изменённых стартапов пользователя;
+          - `myVacancies` — до 5 вакансий пользователя, отсортированных по откликам, затем по просмотрам;
+          - `myApplications` — до 5 последних откликов пользователя;
+          - `totals` — счётчики для верхних плиток.
+
+        `totals` обязан совпадать с `user.startupsCount` / `user.vacanciesCount` / `user.applicationsCount`.
+      x-frontend:
+        hook: useProfileDashboard
+        file: frontend/src/features/profile/api/useProfileDashboard.ts
+      responses:
+        '200':
+          description: Агрегированный дашборд
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProfileDashboard'
+              examples:
+                dashboard:
+                  summary: Профиль с активностью
+                  value:
+                    user:
+                      id: u-anna
+                      firstName: Анна
+                      lastName: Ковалёва
+                      photoUrl: null
+                      startupsCount: 1
+                      vacanciesCount: 3
+                      applicationsCount: 2
+                    recentStartups:
+                      - id: s-1
+                        title: NeuroPilot AI
+                        logoUrl: /api/v1/files/6f1c2c0e-6a2f-4d7b-9a51-8f3a2d1b9c40
+                        stage: mvp
+                        shortDescription: ИИ-ассистент для первичной диагностики в клиниках.
+                        owner:
+                          id: u-anna
+                          firstName: Анна
+                          lastName: Ковалёва
+                          photoUrl: null
+                        createdAt: '2026-07-16T09:00:00.000Z'
+                        updatedAt: '2026-10-18T12:31:00.000Z'
+                        vacanciesCount: 3
+                        applicationsCount: 14
+                        viewsCount: 1860
+                    myVacancies:
+                      - id: v-1
+                        startupId: s-1
+                        startupTitle: NeuroPilot AI
+                        startupLogoUrl: null
+                        title: ML Engineer
+                        applicationsCount: 8
+                        viewsCount: 940
+                        isHidden: false
+                        createdAt: '2026-07-20T10:00:00.000Z'
+                    myApplications:
+                      - id: a-1
+                        vacancyId: v-9
+                        vacancyTitle: Data Analyst
+                        startupId: s-4
+                        startupTitle: FinPulse
+                        startupLogoUrl: null
+                        applicant:
+                          id: u-anna
+                          firstName: Анна
+                          lastName: Ковалёва
+                          photoUrl: null
+                        motivation: Хочу применить опыт продуктовой аналитики в финтехе.
+                        files: []
+                        status: pending
+                        createdAt: '2026-10-02T14:05:00.000Z'
+                    totals:
+                      startups: 1
+                      vacancies: 3
+                      applications: 2
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /profile/startups:
+    get:
+      tags: [Profile]
+      operationId: listOwnedStartups
+      summary: Все стартапы пользователя
+      description: |
+        Полный список стартапов, где `owner.id == currentUser.id`, отсортированный по `updatedAt` по убыванию.
+        Пагинации нет: список используется на странице «Мои стартапы» и в селекторах редактора.
+        Для чужих стартапов используйте `GET /startups`.
+      x-frontend:
+        hook: useOwnedStartups
+        file: frontend/src/features/profile/api/useProfileLists.ts
+      responses:
+        '200':
+          description: Массив стартапов (без вложенных вакансий)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/StartupSummary'
+              examples:
+                twoStartups:
+                  summary: Два проекта
+                  value:
+                    - id: s-1
+                      title: NeuroPilot AI
+                      logoUrl: null
+                      stage: mvp
+                      shortDescription: ИИ-ассистент для первичной диагностики в клиниках.
+                      owner:
+                        id: u-anna
+                        firstName: Анна
+                        lastName: Ковалёва
+                        photoUrl: null
+                      createdAt: '2026-07-16T09:00:00.000Z'
+                      updatedAt: '2026-10-18T12:31:00.000Z'
+                      vacanciesCount: 3
+                      applicationsCount: 14
+                      viewsCount: 1860
+                    - id: s-7
+                      title: SkillBridge
+                      logoUrl: null
+                      stage: idea
+                      shortDescription: Менторская платформа для Junior-разработчиков.
+                      owner:
+                        id: u-anna
+                        firstName: Анна
+                        lastName: Ковалёва
+                        photoUrl: null
+                      createdAt: '2026-10-01T08:15:00.000Z'
+                      updatedAt: '2026-10-11T16:40:00.000Z'
+                      vacanciesCount: 0
+                      applicationsCount: 0
+                      viewsCount: 0
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Startups
+  # ─────────────────────────────────────────────────────────────────────────────
+  /startups:
+    get:
+      tags: [Startups]
+      operationId: listStartups
+      summary: Каталог стартапов
+      description: |
+        Поиск по `title`, `shortDescription` и `description` (регистронезависимый, подстрока).
+        Сортировка всегда `updatedAt DESC` (сначала недавно обновлённые).
+
+        `ownerId` принимает **UUID пользователя**. Сентинел `me` здесь не поддерживается —
+        для «своих» стартапов используйте `GET /profile/startups`.
+      x-frontend:
+        hook: useStartupList
+        file: frontend/src/features/startups/api/useStartups.ts
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: search
+          in: query
+          required: false
+          description: Подстрока для поиска по названию и описаниям (обрезается по краям).
+          schema:
+            type: string
+            maxLength: 200
+          example: нейро
+        - name: ownerId
+          in: query
+          required: false
+          description: UUID владельца; фильтр по конкретному автору.
+          schema:
+            type: string
+            format: uuid
+          example: u-anna
+      responses:
+        '200':
+          description: Страница стартапов
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StartupPage'
+              examples:
+                firstPage:
+                  summary: Первая страница каталога
+                  value:
+                    items:
+                      - id: s-1
+                        title: NeuroPilot AI
+                        logoUrl: '/api/v1/files/6f1c2c0e-6a2f-4d7b-9a51-8f3a2d1b9c40'
+                        stage: mvp
+                        shortDescription: ИИ-ассистент для первичной диагностики в клиниках.
+                        owner:
+                          id: u-anna
+                          firstName: Анна
+                          lastName: Ковалёва
+                          photoUrl: null
+                        createdAt: '2026-07-16T09:00:00.000Z'
+                        updatedAt: '2026-10-18T12:31:00.000Z'
+                        vacanciesCount: 3
+                        applicationsCount: 14
+                        viewsCount: 1860
+                    total: 12
+                    page: 1
+                    pageSize: 6
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags: [Startups]
+      operationId: createStartup
+      summary: Создать стартап
+      description: |
+        Создаёт стартап текущего пользователя и **все переданные вакансии** в одной транзакции.
+        Владелец берётся из токена и не передаётся в теле.
+
+        Правила:
+          - `logoUrl` обязателен и может быть `null` — это осознанное значение «логотипа нет»,
+            backend не должен подставлять плейсхолдер;
+          - при `vacancies[].title == ""` backend подставляет название первой вакансии
+            (или `«Команда проекта»`, если вакансий нет);
+          - `id` в `VacancyInput` при создании игнорируется;
+          - при сбое валидации не должно оставаться частично созданных вакансий.
+      x-frontend:
+        hook: useSaveStartup
+        file: frontend/src/features/startups/api/useStartups.ts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartupInput'
+            examples:
+              newStartup:
+                summary: Стартап с одной вакансией
+                value:
+                  title: SkillBridge
+                  shortDescription: Менторская платформа для Junior-разработчиков.
+                  description: 'Платформа соединяет менторов и джунов: треки, созвоны, ревью портфолио.'
+                  logoUrl: null
+                  stage: idea
+                  vacancies:
+                    - title: Frontend Developer
+                      description: Интерфейс личного кабинета ментора и расписание сессий.
+                      requirements: React, TypeScript, опыт от 1 года.
+                      reward: 'от 120 000 ₽, удалённо.'
+                      isHidden: false
+      responses:
+        '201':
+          description: Стартап создан (со вложенными вакансиями)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Startup'
+              examples:
+                created:
+                  summary: Созданный стартап
+                  value:
+                    id: s-42
+                    title: SkillBridge
+                    logoUrl: null
+                    stage: idea
+                    shortDescription: Менторская платформа для Junior-разработчиков.
+                    description: 'Платформа соединяет менторов и джунов: треки, созвоны, ревью портфолио.'
+                    owner:
+                      id: u-anna
+                      firstName: Анна
+                      lastName: Ковалёва
+                      photoUrl: null
+                    createdAt: '2026-10-20T21:00:00.000Z'
+                    updatedAt: '2026-10-20T21:00:00.000Z'
+                    vacanciesCount: 1
+                    applicationsCount: 0
+                    viewsCount: 0
+                    vacancies:
+                      - id: v-100
+                        startupId: s-42
+                        title: Frontend Developer
+                        description: Интерфейс личного кабинета ментора и расписание сессий.
+                        requirements: React, TypeScript, опыт от 1 года.
+                        reward: 'от 120 000 ₽, удалённо.'
+                        isHidden: false
+                        viewsCount: 0
+                        applicationsCount: 0
+                        createdAt: '2026-10-20T21:00:00.000Z'
+                        updatedAt: '2026-10-20T21:00:00.000Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /startups/{startupId}:
+    parameters:
+      - $ref: '#/components/parameters/StartupId'
+    get:
+      tags: [Startups]
+      operationId: getStartup
+      summary: Стартап по id
+      description: |
+        Полная карточка стартапа со всеми вакансиями. Скрытые вакансии (`isHidden: true`) также
+        возвращаются: клиент сам скрывает их от не-владельца. Ответ используется и для формы
+        редактирования, поэтому все поля обязаны быть заполнены.
+      x-frontend:
+        hook: useStartupDetail
+        file: frontend/src/features/startups/api/useStartups.ts
+      responses:
+        '200':
+          description: Карточка стартапа
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Startup'
+              examples:
+                withVacancies:
+                  summary: Стартап с вакансиями
+                  value:
+                    id: s-1
+                    title: NeuroPilot AI
+                    logoUrl: null
+                    stage: mvp
+                    shortDescription: ИИ-ассистент для первичной диагностики в клиниках.
+                    description: 'Помогает врачам первичного звена формировать предварительные гипотезы.'
+                    owner:
+                      id: u-anna
+                      firstName: Анна
+                      lastName: Ковалёва
+                      photoUrl: null
+                    createdAt: '2026-07-16T09:00:00.000Z'
+                    updatedAt: '2026-10-18T12:31:00.000Z'
+                    vacanciesCount: 2
+                    applicationsCount: 14
+                    viewsCount: 1860
+                    vacancies:
+                      - id: v-1
+                        startupId: s-1
+                        title: ML Engineer
+                        description: Дообучение моделей обработки клинических текстов.
+                        requirements: PyTorch, transformers, NLP от 2 лет.
+                        reward: 'от 250 000 ₽, гибрид, опционы.'
+                        isHidden: false
+                        viewsCount: 940
+                        applicationsCount: 8
+                        createdAt: '2026-07-20T10:00:00.000Z'
+                        updatedAt: '2026-10-18T12:31:00.000Z'
+                      - id: v-2
+                        startupId: s-1
+                        title: Product Designer
+                        description: Проектирование интерфейсов для врачей.
+                        requirements: Портфолио B2B-продуктов, Figma.
+                        reward: 'от 180 000 ₽, по ТК.'
+                        isHidden: true
+                        viewsCount: 610
+                        applicationsCount: 3
+                        createdAt: '2026-08-02T11:00:00.000Z'
+                        updatedAt: '2026-09-30T09:20:00.000Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags: [Startups]
+      operationId: replaceStartup
+      summary: Полное обновление стартапа и его вакансий
+      description: |
+        Идемпотентная замена карточки. Требует прав владельца (`403` иначе).
+
+        Семантика вакансий — **синхронизация набора**:
+          - `vacancies[i].id` присутствует → существующая вакансия обновляется (чужие id игнорируются);
+          - `vacancies[i].id` отсутствует → создаётся новая вакансия;
+          - вакансии стартапа, которых нет в payload, **удаляются** вместе с их откликами и просмотрами;
+          - `logoUrl: null` — явное удаление логотипа (backend не должен регенерировать плейсхолдер).
+      x-frontend:
+        hook: useSaveStartup (ветка `id != null`)
+        file: frontend/src/features/startups/api/useStartups.ts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartupInput'
+            examples:
+              update:
+                summary: Обновление с добавлением новой вакансии
+                value:
+                  title: NeuroPilot AI
+                  shortDescription: ИИ-ассистент для первичной диагностики в клиниках.
+                  description: 'Помогает врачам первичного звена формировать предварительные гипотезы.'
+                  logoUrl: '/api/v1/files/6f1c2c0e-6a2f-4d7b-9a51-8f3a2d1b9c40'
+                  stage: scaling
+                  vacancies:
+                    - id: v-1
+                      title: ML Engineer
+                      description: Дообучение моделей обработки клинических текстов.
+                      requirements: PyTorch, transformers, NLP от 2 лет.
+                      reward: 'от 280 000 ₽, гибрид, опционы.'
+                      isHidden: false
+                    - title: Backend Developer
+                      description: Интеграции с МИС и очередь обработки исследований.
+                      requirements: Python, FastAPI, PostgreSQL, опыт интеграций.
+                      reward: 'от 240 000 ₽.'
+                      isHidden: true
+      responses:
+        '200':
+          description: Обновлённый стартап
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Startup'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Vacancies
+  # ─────────────────────────────────────────────────────────────────────────────
+  /vacancies:
+    get:
+      tags: [Vacancies]
+      operationId: listVacancies
+      summary: Каталог вакансий
+      description: |
+        Публичный список вакансий с поиском, фильтром по названиям и сортировкой.
+
+        Видимость:
+          - без `ownerId` скрытые вакансии (`isHidden: true`) не возвращаются;
+          - `ownerId=me` (или UUID текущего пользователя) возвращает вакансии **только его стартапов**,
+            включая скрытые. Это единственный эндпойнт, поддерживающий сентинел `me`.
+
+        Поиск (`search`) ищет по названию стартапа, `requirements` и `reward`
+        (намеренно **не** по `description`).
+
+        `titles` — повторяемый параметр или строка через запятую; сравнение точное, без учёта регистра.
+      x-frontend:
+        hooks: [useVacancyList, useOwnedVacancies]
+        file: frontend/src/features/vacancies/api/useVacancies.ts
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: search
+          in: query
+          required: false
+          description: Подстрока по названию стартапа, требованиям и вознаграждению.
+          schema:
+            type: string
+            maxLength: 200
+          example: python
+        - name: titles
+          in: query
+          required: false
+          description: |
+            Фильтр по точным названиям вакансий. Форматы: `titles=ML%20Engineer&titles=Data%20Analyst`
+            или `titles=ML%20Engineer,Data%20Analyst`. Пустой список — фильтр выключен.
+          style: form
+          explode: true
+          schema:
+            type: array
+            maxItems: 50
+            items:
+              type: string
+          example: [ML Engineer, Data Analyst]
+        - name: sortBy
+          in: query
+          required: false
+          description: |
+            `new` — по `createdAt` DESC (по умолчанию); `views` — по просмотрам DESC;
+            `applications` — по числу откликов DESC.
+          schema:
+            $ref: '#/components/schemas/VacancySort'
+          example: applications
+        - name: ownerId
+          in: query
+          required: false
+          description: |
+            `me` — вакансии текущего пользователя (включая скрытые). Либо UUID владельца.
+            Для чужого UUID поведение эквивалентно фильтру по его стартапам.
+          schema:
+            type: string
+          example: me
+      responses:
+        '200':
+          description: Страница вакансий
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VacancyPage'
+              examples:
+                filtered:
+                  summary: Отсортировано по откликам
+                  value:
+                    items:
+                      - id: v-1
+                        startupId: s-1
+                        startupTitle: NeuroPilot AI
+                        startupLogoUrl: null
+                        title: ML Engineer
+                        applicationsCount: 8
+                        viewsCount: 940
+                        isHidden: false
+                        createdAt: '2026-07-20T10:00:00.000Z'
+                    total: 21
+                    page: 1
+                    pageSize: 8
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /vacancies/titles:
+    get:
+      tags: [Vacancies]
+      operationId: listVacancyTitles
+      summary: Справочник названий вакансий
+      description: |
+        Уникальные названия **нескрытых** вакансий, отсортированные по возрастанию (локаль `ru`).
+        Используется для чекбоксов в фильтре каталога. Кэшируется на клиенте бессрочно,
+        поэтому ответ должен быть стабильным и без пагинации.
+      x-frontend:
+        hook: useVacancyTitles
+        file: frontend/src/features/vacancies/api/useVacancies.ts
+        cache: 'staleTime: Infinity'
+      responses:
+        '200':
+          description: Отсортированный массив названий
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+              examples:
+                titles:
+                  summary: Названия из демо-данных
+                  value: [Data Analyst, Frontend Developer, ML Engineer, Operations Manager, Product Designer]
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /vacancies/templates:
+    get:
+      tags: [Vacancies]
+      operationId: listVacancyTemplates
+      summary: Шаблоны вакансий
+      description: |
+        Готовые заготовки для редактора стартапа (кнопка «Взять шаблон»). Справочник статический,
+        кэшируется бессрочно. `id` — строковый ключ шаблона, не UUID.
+      x-frontend:
+        hook: useVacancyTemplates
+        file: frontend/src/features/vacancies/api/useVacancies.ts
+        cache: 'staleTime: Infinity'
+      responses:
+        '200':
+          description: Массив шаблонов
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/VacancyTemplate'
+              examples:
+                templates:
+                  summary: Два шаблона
+                  value:
+                    - id: frontend-developer
+                      title: Frontend Developer
+                      description: Развитие пользовательских интерфейсов продукта.
+                      requirements: React, TypeScript, опыт от 2 лет.
+                      reward: 'от 200 000 ₽, удалённый формат.'
+                    - id: product-manager
+                      title: Product Manager
+                      description: Развитие продукта, гипотезы, приоритизация бэклога.
+                      requirements: Опыт управления продуктом от 2 лет.
+                      reward: 'от 230 000 ₽, опционы.'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /vacancies/{vacancyId}:
+    parameters:
+      - $ref: '#/components/parameters/VacancyId'
+    get:
+      tags: [Vacancies]
+      operationId: getVacancy
+      summary: Карточка вакансии
+      description: |
+        Возвращает вакансию вместе с краткой ссылкой на стартап и контекстом для текущего пользователя:
+          - `myApplicationStatus` — статус собственного отклика или `null`, если отклика нет;
+          - `isOwner` — владелец ли пользователь стартапа (управляет доступом к статистике).
+
+        `viewsCount` увеличивается не этим запросом, а `POST /vacancies/{id}/view`.
+      x-frontend:
+        hook: useVacancyDetail
+        file: frontend/src/features/vacancies/api/useVacancies.ts
+      responses:
+        '200':
+          description: Детали вакансии
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VacancyDetails'
+              examples:
+                existingApplication:
+                  summary: Пользователь уже откликнулся
+                  value:
+                    id: v-1
+                    startupId: s-1
+                    title: ML Engineer
+                    description: Дообучение моделей обработки клинических текстов.
+                    requirements: PyTorch, transformers, NLP от 2 лет.
+                    reward: 'от 250 000 ₽, гибрид, опционы.'
+                    isHidden: false
+                    viewsCount: 940
+                    applicationsCount: 8
+                    createdAt: '2026-07-20T10:00:00.000Z'
+                    updatedAt: '2026-10-18T12:31:00.000Z'
+                    startup:
+                      id: s-1
+                      title: NeuroPilot AI
+                      logoUrl: null
+                      stage: mvp
+                    myApplicationStatus: pending
+                    isOwner: false
+                ownerView:
+                  summary: Просмотр владельцем
+                  value:
+                    id: v-1
+                    startupId: s-1
+                    title: ML Engineer
+                    description: Дообучение моделей обработки клинических текстов.
+                    requirements: PyTorch, transformers, NLP от 2 лет.
+                    reward: 'от 250 000 ₽, гибрид, опционы.'
+                    isHidden: false
+                    viewsCount: 940
+                    applicationsCount: 8
+                    createdAt: '2026-07-20T10:00:00.000Z'
+                    updatedAt: '2026-10-18T12:31:00.000Z'
+                    startup:
+                      id: s-1
+                      title: NeuroPilot AI
+                      logoUrl: null
+                      stage: mvp
+                    myApplicationStatus: null
+                    isOwner: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /vacancies/{vacancyId}/view:
+    parameters:
+      - $ref: '#/components/parameters/VacancyId'
+    post:
+      tags: [Vacancies]
+      operationId: registerVacancyView
+      summary: Отметить просмотр вакансии
+      description: |
+        Регистрирует просмотр от текущего пользователя. **Идемпотентно в пределах календарного дня
+        (UTC)**: уникальный ключ `vacancy_views (vacancy_id, user_id, view_date)` гарантирует, что
+        повторный вызов в тот же день не увеличивает счётчик и возвращает `tracked: false`.
+
+        Вызывается фронтендом отложенно (~600 мс после открытия карточки), поэтому:
+          - запрос должен быть дешёвым и не блокировать рендер;
+          - тела запроса нет;
+          - `404` возможен, если вакансия удалена между навигацией и таймером (клиент игнорирует ошибку).
+
+        Просмотр владельца **не засчитывается**: сервер проверяет `isOwner` и возвращает
+        `tracked: false`, иначе `totalViews` в статистике завышался бы собственными открытиями.
+      x-frontend:
+        hook: useRegisterVacancyView
+        file: frontend/src/features/vacancies/api/useVacancies.ts
+      responses:
+        '200':
+          description: Результат трекинга
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrackViewResult'
+              examples:
+                firstViewToday:
+                  summary: Просмотр засчитан
+                  value:
+                    tracked: true
+                repeatedView:
+                  summary: Уже просмотрено сегодня (или смотрит владелец)
+                  value:
+                    tracked: false
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /vacancies/{vacancyId}/apply:
+    parameters:
+      - $ref: '#/components/parameters/VacancyId'
+    post:
+      tags: [Vacancies]
+      operationId: applyToVacancy
+      summary: Откликнуться на вакансию
+      description: |
+        Создаёт отклик со статусом `pending` от текущего пользователя.
+
+        Валидация:
+          - `motivation` не пустой после `trim()` → иначе `422`;
+          - не более **5** вложений → иначе `422`;
+          - каждый элемент `files[].id` обязан существовать в хранилище и иметь
+            `scope = application-attachment` → иначе `422`;
+          - `name`, `size`, `mimeType`, `url` из клиента **игнорируются**: backend берёт метаданные
+            из индекса хранилища (клиент не может подделать имя или ссылку);
+          - повторный отклик на ту же вакансию → `409`; защищается уникальным ключом
+            `applications (vacancy_id, applicant_id)`, а не только проверкой в коде (гонка двух
+            одновременных запросов не создаёт дубль);
+          - отклик на вакансию собственного стартапа → `422`: владелец не может откликнуться себе;
+          - превышен общий бюджет хранилища → `507`.
+
+        После успеха фронтенд инвалидирует карточку вакансии, каталог, отклики и профиль.
+      x-frontend:
+        hook: useApplyToVacancy
+        file: frontend/src/features/vacancies/api/useVacancies.ts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApplyInput'
+            examples:
+              withAttachment:
+                summary: Отклик с резюме
+                value:
+                  motivation: 'Три года в NLP, есть опыт клинических текстов и разметки данных.'
+                  files:
+                    - id: 1a7f3f7c-8b1e-4c2e-9f24-2b6d0b1c5e11
+                      name: resume.pdf
+                      size: 284311
+                      mimeType: application/pdf
+                      url: /api/v1/files/1a7f3f7c-8b1e-4c2e-9f24-2b6d0b1c5e11
+              textOnly:
+                summary: Отклик без вложений
+                value:
+                  motivation: Готов обсудить задачи и сроки на созвоне.
+                  files: []
+      responses:
+        '201':
+          description: Отклик создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Application'
+              examples:
+                created:
+                  summary: Новый отклик
+                  value:
+                    id: a-77
+                    vacancyId: v-1
+                    vacancyTitle: ML Engineer
+                    startupId: s-1
+                    startupTitle: NeuroPilot AI
+                    startupLogoUrl: null
+                    applicant:
+                      id: u-anna
+                      firstName: Анна
+                      lastName: Ковалёва
+                      photoUrl: null
+                    motivation: 'Три года в NLP, есть опыт клинических текстов и разметки данных.'
+                    files:
+                      - id: 1a7f3f7c-8b1e-4c2e-9f24-2b6d0b1c5e11
+                        name: resume.pdf
+                        size: 284311
+                        mimeType: application/pdf
+                        url: /api/v1/files/1a7f3f7c-8b1e-4c2e-9f24-2b6d0b1c5e11
+                    status: pending
+                    createdAt: '2026-10-20T21:00:00.000Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '507':
+          $ref: '#/components/responses/InsufficientStorage'
+
+  /vacancies/{vacancyId}/stats:
+    parameters:
+      - $ref: '#/components/parameters/VacancyId'
+    get:
+      tags: [Vacancies]
+      operationId: getVacancyStats
+      summary: Статистика вакансии (только владелец)
+      description: |
+        Аналитика для владельца стартапа. Любой другой пользователь получает `403`.
+
+        Состав ответа:
+          - `daily` — ровно **14 точек**, по возрастанию даты, включая сегодняшний день (UTC).
+            Дни без активности присутствуют с нулями (график не должен иметь разрывов);
+          - `viewers` — до **20** последних просмотров, по убыванию `viewedAt`;
+          - `applications` — все отклики вакансии, по убыванию `createdAt`;
+          - `totalViews` / `totalApplications` — агрегаты по всей истории, не только за 14 дней.
+      x-frontend:
+        hook: useVacancyStats
+        file: frontend/src/features/vacancies/api/useVacancies.ts
+      responses:
+        '200':
+          description: Статистика вакансии
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VacancyStats'
+              examples:
+                stats:
+                  summary: Две недели активности
+                  value:
+                    vacancyId: v-1
+                    vacancyTitle: ML Engineer
+                    startupTitle: NeuroPilot AI
+                    startupLogoUrl: null
+                    totalViews: 940
+                    totalApplications: 8
+                    daily:
+                      - date: '2026-10-19'
+                        views: 34
+                        applications: 1
+                      - date: '2026-10-20'
+                        views: 21
+                        applications: 0
+                    viewers:
+                      - user:
+                          id: u-dmitry
+                          firstName: Дмитрий
+                          lastName: Соколов
+                          photoUrl: null
+                        viewedAt: '2026-10-20T18:42:00.000Z'
+                    applications:
+                      - id: a-77
+                        vacancyId: v-1
+                        vacancyTitle: ML Engineer
+                        startupId: s-1
+                        startupTitle: NeuroPilot AI
+                        startupLogoUrl: null
+                        applicant:
+                          id: u-anna
+                          firstName: Анна
+                          lastName: Ковалёва
+                          photoUrl: null
+                        motivation: Три года в NLP.
+                        files: []
+                        status: pending
+                        createdAt: '2026-10-20T09:10:00.000Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Пользователь не владеет стартапом вакансии
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                forbidden:
+                  value:
+                    message: Статистика доступна только владельцу стартапа
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Applications
+  # ─────────────────────────────────────────────────────────────────────────────
+  /applications/mine:
+    get:
+      tags: [Applications]
+      operationId: listMyApplications
+      summary: Мои отклики
+      description: |
+        Все отклики текущего пользователя, по убыванию `createdAt`.
+        Используется на странице «Мои отклики» и в дашборде профиля.
+      x-frontend:
+        hook: useMyApplications
+        file: frontend/src/features/profile/api/useProfileLists.ts
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Страница откликов
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplicationPage'
+              examples:
+                page:
+                  summary: Один отклик
+                  value:
+                    items:
+                      - id: a-77
+                        vacancyId: v-1
+                        vacancyTitle: ML Engineer
+                        startupId: s-1
+                        startupTitle: NeuroPilot AI
+                        startupLogoUrl: null
+                        applicant:
+                          id: u-anna
+                          firstName: Анна
+                          lastName: Ковалёва
+                          photoUrl: null
+                        motivation: Три года в NLP.
+                        files: []
+                        status: approved
+                        createdAt: '2026-10-20T09:10:00.000Z'
+                    total: 2
+                    page: 1
+                    pageSize: 10
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /applications/inbox:
+    get:
+      tags: [Applications]
+      operationId: listInboxApplications
+      summary: Входящие отклики
+      description: |
+        Все отклики на вакансии стартапов текущего пользователя, по убыванию `createdAt`.
+        Полезно для бейджа «новые отклики» в сайдбаре.
+      x-frontend:
+        hook: not wired yet (используется в mock)
+        file: frontend/src/api/mock/server.ts
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Страница входящих откликов
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplicationPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /applications/{applicationId}/status:
+    parameters:
+      - name: applicationId
+        in: path
+        required: true
+        description: Идентификатор отклика.
+        schema:
+          type: string
+          format: uuid
+        example: a-77
+    patch:
+      tags: [Applications]
+      operationId: updateApplicationStatus
+      summary: Изменить статус отклика
+      description: |
+        Модерация отклика владельцем стартапа. UI вызывает только `approved` и `rejected`,
+        но контракт допускает возврат в `pending`.
+
+        Ограничения:
+          - только владелец стартапа, к которому относится вакансия → иначе `403`;
+          - статус применяется идемпотентно (повторный вызов с тем же статусом — `200`).
+      x-frontend:
+        hook: useUpdateApplicationStatus
+        file: frontend/src/features/vacancies/api/useVacancies.ts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  $ref: '#/components/schemas/ApplicationStatus'
+            examples:
+              approve:
+                summary: Одобрить
+                value:
+                  status: approved
+              reject:
+                summary: Отклонить
+                value:
+                  status: rejected
+      responses:
+        '200':
+          description: Отклик с обновлённым статусом
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Application'
+              examples:
+                approved:
+                  summary: Одобренный отклик
+                  value:
+                    id: a-77
+                    vacancyId: v-1
+                    vacancyTitle: ML Engineer
+                    startupId: s-1
+                    startupTitle: NeuroPilot AI
+                    startupLogoUrl: null
+                    applicant:
+                      id: u-anna
+                      firstName: Анна
+                      lastName: Ковалёва
+                      photoUrl: null
+                    motivation: Три года в NLP.
+                    files: []
+                    status: approved
+                    createdAt: '2026-10-20T09:10:00.000Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Files
+  # ─────────────────────────────────────────────────────────────────────────────
+  /files/upload:
+    post:
+      tags: [Files]
+      operationId: uploadFile
+      summary: Загрузить файл в хранилище
+      description: |
+        Принимает `multipart/form-data` с двумя полями:
+          - `scope` — политика хранения и валидации;
+          - `file` — бинарные данные.
+
+        Backend:
+          - генерирует UUID как ключ объекта (имя файла — только метаданные);
+          - валидирует размер и MIME согласно `scope`;
+          - стримит тело в dufs (`PUT`) без полной буферизации;
+          - возвращает `url` вида `/api/v1/files/{uuid}` — **через прокси**, не прямой адрес dufs.
+
+        Лимиты:
+          | scope | размер | MIME |
+          |---|---|---|
+          | `startup-logo` | ≤ 2 МБ | `image/png`, `image/jpeg`, `image/webp`, `image/gif`, `image/svg+xml` |
+          | `application-attachment` | ≤ 10 МБ | любой |
+
+        Клиент показывает прогресс из XHR-событий, поэтому ответ должен отдаваться только после
+        полной записи объекта в хранилище. Загрузка прерывается клиентом через `AbortSignal`
+        (закрытие модального окна, `api.post` с `signal`) — backend обязан прервать `PUT` в dufs
+        и не оставлять «полуобъект».
+
+        Объект записывается в индекс (`files`) с `uploaded_by_id = current_user`, поэтому логотип
+        впоследствии принимается только от загрузившего его пользователя.
+      x-frontend:
+        hook: useFileUpload
+        file: frontend/src/features/files/api/useFiles.ts
+        component: LogoUploader / ApplyModal
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [scope, file]
+              properties:
+                scope:
+                  $ref: '#/components/schemas/FileUploadScope'
+                file:
+                  type: string
+                  format: binary
+            encoding:
+              file:
+                contentType: application/octet-stream
+            examples:
+              logo:
+                summary: Логотип стартапа
+                value:
+                  scope: startup-logo
+                  file: (binary)
+              attachment:
+                summary: Вложение к отклику
+                value:
+                  scope: application-attachment
+                  file: (binary)
+      responses:
+        '201':
+          description: Объект создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StoredFile'
+              examples:
+                stored:
+                  summary: Сохранённый логотип
+                  value:
+                    id: 6f1c2c0e-6a2f-4d7b-9a51-8f3a2d1b9c40
+                    name: neuropilot-logo.png
+                    size: 48120
+                    mimeType: image/png
+                    url: /api/v1/files/6f1c2c0e-6a2f-4d7b-9a51-8f3a2d1b9c40
+                    createdAt: '2026-10-20T21:00:00.000Z'
+        '400':
+          description: Тело не является `multipart/form-data`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                notMultipart:
+                  value:
+                    message: Ожидается multipart/form-data
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          description: Файл отсутствует, пустой, слишком большой или недопустимый MIME
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                tooLarge:
+                  value:
+                    message: Файл больше 2 МБ
+                wrongType:
+                  value:
+                    message: 'Логотип должен быть изображением PNG, JPG, WEBP, GIF или SVG'
+                missing:
+                  value:
+                    message: Файл не передан
+        '507':
+          $ref: '#/components/responses/InsufficientStorage'
+
+  /files/{fileId}:
+    parameters:
+      - name: fileId
+        in: path
+        required: true
+        description: UUID объекта в хранилище (не имя файла).
+        schema:
+          type: string
+          format: uuid
+        example: 6f1c2c0e-6a2f-4d7b-9a51-8f3a2d1b9c40
+    get:
+      tags: [Files]
+      operationId: downloadFile
+      summary: Скачать/отобразить файл
+      description: |
+        Отдаёт байты объекта с его исходным MIME-типом. Используется:
+          - как `src` в `<img>` для логотипов стартапов;
+          - для скачивания вложений (`responseType: 'blob'`, затем сохранение под исходным именем).
+
+        **Авторизация здесь только cookie (`hb_session`).** Браузер запрашивает изображение без
+        участия JS, поэтому `X-Telegram-Init-Data` в этом запросе отсутствует. Если backend
+        потребует заголовок, все логотипы перестанут отображаться. Альтернатива, если cookie
+        недоступна — короткоживущий подписанный URL (`?token=...`, ≤ 5 минут), который backend
+        возвращает в `url`/`logoUrl`.
+
+        Аватары пользователей (`photoUrl`) этот прокси не используют: это ссылка на CDN Telegram.
+      x-frontend:
+        hook: useFileSrc / useDownloadFile
+        file: frontend/src/features/files/api/useFiles.ts
+      responses:
+        '200':
+          description: Бинарное содержимое объекта
+          headers:
+            Content-Type:
+              description: Исходный MIME-тип файла.
+              schema:
+                type: string
+              example: image/png
+            Content-Length:
+              description: Размер в байтах.
+              schema:
+                type: integer
+              example: 48120
+            Content-Disposition:
+              description: |
+                `inline` для изображений; для вложений — `attachment; filename*=UTF-8''<original>`.
+              schema:
+                type: string
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '401':
+          description: |
+            Нет cookie-сессии (или подписанный URL истёк). Для `<img>` это означает «не удалось
+            загрузить изображение».
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                noSession:
+                  value:
+                    message: Требуется авторизация
+        '403':
+          description: Объект принадлежит другому пользователю (например, вложение чужого отклика)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                notOwned:
+                  value:
+                    message: Нет доступа к этому файлу
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '410':
+          description: Метаданные есть, содержимое недоступно (только демо-режим)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                gone:
+                  value:
+                    message: Содержимое файла доступно только в текущей сессии
+
+    delete:
+      tags: [Files]
+      operationId: deleteFile
+      summary: Удалить файл
+      description: |
+        Удаляет объект из хранилища и индекс. Вызывается, когда пользователь убирает загруженный
+        логотип или вложение до сохранения формы, чтобы не копить «сиротские» UUID.
+
+        Удалять может только владелец объекта (`files.uploaded_by_id`); для системных объектов
+        (`uploaded_by_id IS NULL`) удаление запрещено.
+
+        Удаление идемпотентно по смыслу: повторный вызов возвращает `404`, клиент трактует
+        ошибку как «файла уже нет» и продолжает работу.
+      x-frontend:
+        hook: useDeleteFile
+        file: frontend/src/features/files/api/useFiles.ts
+      responses:
+        '200':
+          description: Объект удалён
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteResult'
+              examples:
+                deleted:
+                  value:
+                    deleted: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  securitySchemes:
+    telegramInitData:
+      type: apiKey
+      in: header
+      name: X-Telegram-Init-Data
+      description: |
+        Сырая строка `Telegram.WebApp.initData` (query-string формат, `hash` в конце), без
+        перекодирования. Backend проверяет HMAC-SHA256 с `TELEGRAM_BOT_TOKEN` (ключ
+        `WebAppData`), свежесть `auth_date` и однократность подписи (`hash`).
+
+        Заголовок отправляется на каждый запрос, потому что `initData` перевыпускается при
+        каждом запуске Mini App. Значение `initDataUnsafe` доверенным не считается и на сервер
+        не отправляется.
+
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: hb_session
+      description: |
+        HttpOnly-сессия, выданная `POST /auth/telegram` после проверки `initData`
+        (`Secure; SameSite=Lax; Path=/`).
+
+        Нужна для запросов, которые браузер делает без участия JS — прежде всего
+        `<img src="/api/v1/files/{uuid}">` для логотипов, и для скачивания вложений.
+        Без cookie такие запросы получают `401`, и изображения не отображаются.
+
+  parameters:
+    Page:
+      name: page
+      in: query
+      required: false
+      description: Номер страницы, начиная с 1. Неположительные значения → 1.
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+      example: 1
+
+    PageSize:
+      name: pageSize
+      in: query
+      required: false
+      description: Размер страницы. Значение по умолчанию зависит от эндпойнта (6 или 10); максимум — 100.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 6
+      example: 8
+
+    StartupId:
+      name: startupId
+      in: path
+      required: true
+      description: |
+        Идентификатор стартапа. Непрозрачная строка: сервер отдаёт UUID, а демо-данные
+        используют читаемые значения (`s-1`), поэтому `format: uuid` не навязывается.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 64
+      example: s-1
+
+    VacancyId:
+      name: vacancyId
+      in: path
+      required: true
+      description: Идентификатор вакансии (непрозрачная строка, см. `StartupId`).
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 64
+      example: v-1
+
+  responses:
+    Unauthorized:
+      description: Пользователь не аутентифицирован
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            unauthorized:
+              value:
+                message: Требуется авторизация
+
+    Forbidden:
+      description: Недостаточно прав (не владелец ресурса)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            notOwner:
+              value:
+                message: Недостаточно прав для изменения этого стартапа
+
+    NotFound:
+      description: Ресурс не найден
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            startupNotFound:
+              value:
+                message: Стартап не найден
+            vacancyNotFound:
+              value:
+                message: Вакансия не найдена
+            fileNotFound:
+              value:
+                message: Файл не найден
+
+    TooManyRequests:
+      description: Слишком много попыток (защита `POST /auth/telegram` и трекинга просмотров)
+      headers:
+        Retry-After:
+          description: Через сколько секунд повторить запрос.
+          schema:
+            type: integer
+          example: 30
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            throttled:
+              value:
+                message: Слишком много запросов, попробуйте позже
+
+    Conflict:
+      description: |
+        Конфликт состояния. Основной случай — повторный отклик на вакансию
+        (уникальный ключ `applications (vacancy_id, applicant_id)`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            alreadyApplied:
+              value:
+                message: Вы уже откликнулись на эту вакансию
+
+    UnprocessableEntity:
+      description: Нарушены бизнес-правила или ограничения полей
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            motivationRequired:
+              value:
+                message: Добавьте мотивационное письмо
+            unknownFile:
+              value:
+                message: 'Файл «resume.pdf» не найден в хранилище'
+            tooManyFiles:
+              value:
+                message: Можно приложить не больше 5 файлов
+
+    InsufficientStorage:
+      description: Общий бюджет хранилища вложений исчерпан
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            full:
+              value:
+                message: Хранилище файлов переполнено
+
+    ServerError:
+      description: Внутренняя ошибка сервера
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            createFailed:
+              value:
+                message: Не удалось создать стартап
+
+  schemas:
+    # ── Общие ──────────────────────────────────────────────────────────────────
+    Error:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+          description: Готовый к показу пользователю текст (русский).
+          example: Вакансия не найдена
+
+    PaginatedResult:
+      type: object
+      description: Базовая форма пагинации; конкретные ответы описаны отдельными схемами.
+      required: [items, total, page, pageSize]
+      properties:
+        items:
+          type: array
+          items: {}
+        total:
+          type: integer
+          description: Общее количество элементов до пагинации.
+          example: 21
+        page:
+          type: integer
+          description: Текущая страница (1-based).
+          example: 1
+        pageSize:
+          type: integer
+          description: Размер страницы, применённый сервером.
+          example: 6
+
+    Applicant:
+      type: object
+      description: |
+        Пользователь как он приходит из Telegram. Платформа не хранит собственный ник,
+        email, должность или компанию — эти поля удалены из модели целиком.
+      required: [id, telegramId, firstName, lastName, photoUrl]
+      properties:
+        id:
+          type: string
+          description: Внутренний идентификатор платформы (UUID).
+          example: u-anna
+        telegramId:
+          type: integer
+          format: int64
+          description: Telegram user id; естественный ключ, по нему выполняется upsert.
+          example: 279058397
+        firstName:
+          type: string
+          maxLength: 100
+          description: '`first_name` из Telegram.'
+          example: Анна
+        lastName:
+          type: string
+          maxLength: 100
+          description: |
+            `last_name` из Telegram. Пустая строка, если пользователь не указал фамилию
+            (поле в Telegram необязательное); `null` не используется.
+          example: Смирнова
+        photoUrl:
+          type: string
+          nullable: true
+          description: |
+            `photo_url` из Telegram: абсолютная ссылка на CDN Telegram. Не проксируется через
+            файловое хранилище и не требует cookie; `null`, если аватар не установлен.
+          example: https://t.me/i/userpic/320/anna.jpg
+
+    UserProfile:
+      allOf:
+        - $ref: '#/components/schemas/Applicant'
+        - type: object
+          required: [startupsCount, vacanciesCount, applicationsCount]
+          properties:
+            startupsCount:
+              type: integer
+              minimum: 0
+              example: 1
+            vacanciesCount:
+              type: integer
+              minimum: 0
+              example: 3
+            applicationsCount:
+              type: integer
+              minimum: 0
+              example: 2
+
+    TelegramSession:
+      type: object
+      description: Результат обмена `initData` на сессию.
+      required: [user, expiresAt]
+      properties:
+        user:
+          $ref: '#/components/schemas/UserProfile'
+        expiresAt:
+          type: string
+          format: date-time
+          description: |
+            Момент истечения cookie `hb_session`. После него любой запрос вернёт `401` и
+            приложение потребует перезапуска Mini App.
+          example: '2026-10-22T08:00:00.000Z'
+
+    # ── Стартапы ───────────────────────────────────────────────────────────────
+    StartupStage:
+      type: string
+      description: Стадия проекта.
+      enum: [idea, mvp, scaling]
+      example: mvp
+
+    StartupRef:
+      type: object
+      description: Краткая ссылка на стартап (в вакансии и списках).
+      required: [id, title, logoUrl, stage]
+      properties:
+        id:
+          type: string
+          example: s-1
+        title:
+          type: string
+          maxLength: 150
+          example: NeuroPilot AI
+        logoUrl:
+          type: string
+          nullable: true
+          description: URL логотипа через файловый прокси; `null` означает «логотипа нет».
+          example: null
+        stage:
+          $ref: '#/components/schemas/StartupStage'
+
+    StartupSummary:
+      allOf:
+        - $ref: '#/components/schemas/StartupRef'
+        - type: object
+          required:
+            [shortDescription, owner, createdAt, updatedAt, vacanciesCount, applicationsCount, viewsCount]
+          properties:
+            shortDescription:
+              type: string
+              maxLength: 300
+              description: Короткое описание для карточки каталога.
+              example: ИИ-ассистент для первичной диагностики в клиниках.
+            owner:
+              $ref: '#/components/schemas/Applicant'
+            createdAt:
+              type: string
+              format: date-time
+              example: '2026-07-16T09:00:00.000Z'
+            updatedAt:
+              type: string
+              format: date-time
+              example: '2026-10-18T12:31:00.000Z'
+            vacanciesCount:
+              type: integer
+              minimum: 0
+              description: Количество **нескрытых** вакансий.
+              example: 3
+            applicationsCount:
+              type: integer
+              minimum: 0
+              description: Сумма откликов по всем вакансиям стартапа.
+              example: 14
+            viewsCount:
+              type: integer
+              minimum: 0
+              description: Сумма просмотров по всем вакансиям стартапа.
+              example: 1860
+
+    Startup:
+      allOf:
+        - $ref: '#/components/schemas/StartupSummary'
+        - type: object
+          required: [description, vacancies]
+          properties:
+            description:
+              type: string
+              description: 'Полное описание; переносы строк значимы (`white-space: pre-line`).'
+              example: Помогает врачам первичного звена формировать предварительные гипотезы.
+            vacancies:
+              type: array
+              description: Все вакансии, включая скрытые.
+              items:
+                $ref: '#/components/schemas/Vacancy'
+
+    VacancyInput:
+      type: object
+      required: [title, description, requirements, reward, isHidden]
+      properties:
+        id:
+          type: string
+          nullable: true
+          description: |
+            При обновлении стартапа — id существующей вакансии. Отсутствие поля означает создание
+            новой вакансии; при создании стартапа поле игнорируется.
+          example: v-1
+        title:
+          type: string
+          maxLength: 150
+          description: Пустая строка → server-side fallback на название первой вакансии.
+          example: ML Engineer
+        description:
+          type: string
+          example: Дообучение моделей обработки клинических текстов.
+        requirements:
+          type: string
+          example: PyTorch, transformers, NLP от 2 лет.
+        reward:
+          type: string
+          maxLength: 255
+          example: 'от 250 000 ₽, гибрид, опционы.'
+        isHidden:
+          type: boolean
+          description: Скрытая вакансия видна только владельцу и в его кабинете.
+          example: false
+
+    StartupInput:
+      type: object
+      required: [title, shortDescription, description, logoUrl, stage, vacancies]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 150
+          example: SkillBridge
+        shortDescription:
+          type: string
+          minLength: 1
+          maxLength: 300
+          example: Менторская платформа для Junior-разработчиков.
+        description:
+          type: string
+          example: Платформа соединяет менторов и джунов.
+        logoUrl:
+          type: string
+          nullable: true
+          writeOnly: true
+          description: |
+            Обязательное поле; передаётся URL объекта, ранее полученный из `POST /files/upload`
+            (`/api/v1/files/{uuid}`). Backend извлекает UUID, проверяет, что объект существует,
+            имеет `scope = startup-logo` и загружен этим пользователем, и сохраняет ссылку на
+            файл. Произвольный внешний URL отклоняется `422` — строки «как есть» не сохраняются.
+
+            `null` — осознанное «без логотипа»: backend не подставляет плейсхолдер и не сохраняет
+            прежний логотип.
+          example: /api/v1/files/6f1c2c0e-6a2f-4d7b-9a51-8f3a2d1b9c40
+        stage:
+          $ref: '#/components/schemas/StartupStage'
+        vacancies:
+          type: array
+          description: Полный целевой набор вакансий стартапа (см. семантику `PUT /startups/{id}`).
+          items:
+            $ref: '#/components/schemas/VacancyInput'
+
+    StartupPage:
+      allOf:
+        - $ref: '#/components/schemas/PaginatedResult'
+        - type: object
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/StartupSummary'
+
+    # ── Вакансии ───────────────────────────────────────────────────────────────
+    Vacancy:
+      type: object
+      required:
+        [
+          id,
+          startupId,
+          title,
+          description,
+          requirements,
+          reward,
+          isHidden,
+          viewsCount,
+          applicationsCount,
+          createdAt,
+          updatedAt,
+        ]
+      properties:
+        id:
+          type: string
+          example: v-1
+        startupId:
+          type: string
+          example: s-1
+        title:
+          type: string
+          maxLength: 150
+          example: ML Engineer
+        description:
+          type: string
+          example: Дообучение моделей обработки клинических текстов.
+        requirements:
+          type: string
+          example: PyTorch, transformers, NLP от 2 лет.
+        reward:
+          type: string
+          maxLength: 255
+          example: 'от 250 000 ₽, гибрид, опционы.'
+        isHidden:
+          type: boolean
+          example: false
+        viewsCount:
+          type: integer
+          minimum: 0
+          description: Уникальные просмотры (пользователь × день).
+          example: 940
+        applicationsCount:
+          type: integer
+          minimum: 0
+          example: 8
+        createdAt:
+          type: string
+          format: date-time
+          example: '2026-07-20T10:00:00.000Z'
+        updatedAt:
+          type: string
+          format: date-time
+          example: '2026-10-18T12:31:00.000Z'
+
+    VacancyListItem:
+      type: object
+      description: Строка каталога вакансий (денормализованные данные стартапа).
+      required:
+        [
+          id,
+          startupId,
+          startupTitle,
+          startupLogoUrl,
+          title,
+          applicationsCount,
+          viewsCount,
+          isHidden,
+          createdAt,
+        ]
+      properties:
+        id:
+          type: string
+          example: v-1
+        startupId:
+          type: string
+          example: s-1
+        startupTitle:
+          type: string
+          example: NeuroPilot AI
+        startupLogoUrl:
+          type: string
+          nullable: true
+          example: null
+        title:
+          type: string
+          example: ML Engineer
+        applicationsCount:
+          type: integer
+          minimum: 0
+          example: 8
+        viewsCount:
+          type: integer
+          minimum: 0
+          example: 940
+        isHidden:
+          type: boolean
+          example: false
+        createdAt:
+          type: string
+          format: date-time
+          example: '2026-07-20T10:00:00.000Z'
+
+    VacancyDetails:
+      allOf:
+        - $ref: '#/components/schemas/Vacancy'
+        - type: object
+          required: [startup, myApplicationStatus, isOwner]
+          properties:
+            startup:
+              $ref: '#/components/schemas/StartupRef'
+            myApplicationStatus:
+              allOf:
+                - $ref: '#/components/schemas/ApplicationStatus'
+              nullable: true
+              description: Статус отклика текущего пользователя или `null`, если отклика нет.
+            isOwner:
+              type: boolean
+              description: Владеет ли текущий пользователь стартапом этой вакансии.
+              example: false
+
+    VacancySort:
+      type: string
+      description: Режим сортировки каталога вакансий.
+      enum: [new, views, applications]
+      default: new
+      example: new
+
+    VacancyPage:
+      allOf:
+        - $ref: '#/components/schemas/PaginatedResult'
+        - type: object
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/VacancyListItem'
+
+    VacancyTemplate:
+      type: object
+      description: Заготовка вакансии; `id` — строковый ключ, не UUID.
+      required: [id, title, description, requirements, reward]
+      properties:
+        id:
+          type: string
+          example: frontend-developer
+        title:
+          type: string
+          maxLength: 150
+          example: Frontend Developer
+        description:
+          type: string
+          example: Развитие пользовательских интерфейсов продукта.
+        requirements:
+          type: string
+          example: React, TypeScript, опыт от 2 лет.
+        reward:
+          type: string
+          maxLength: 255
+          example: 'от 200 000 ₽, удалённый формат.'
+
+    # ── Отклики ────────────────────────────────────────────────────────────────
+    ApplicationStatus:
+      type: string
+      description: Статус отклика. Новый отклик всегда `pending`.
+      enum: [pending, rejected, approved]
+      example: pending
+
+    ApplicationFile:
+      type: object
+      required: [id, name, size]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: UUID объекта в хранилище (не имя файла).
+          example: 1a7f3f7c-8b1e-4c2e-9f24-2b6d0b1c5e11
+        name:
+          type: string
+          description: Исходное имя файла (только метаданные).
+          example: resume.pdf
+        size:
+          type: integer
+          description: Размер в байтах.
+          example: 284311
+        mimeType:
+          type: string
+          nullable: true
+          example: application/pdf
+        url:
+          type: string
+          nullable: true
+          description: URL через файловый прокси; `null` для устаревших демо-записей.
+          example: /api/v1/files/1a7f3f7c-8b1e-4c2e-9f24-2b6d0b1c5e11
+
+    Application:
+      type: object
+      required:
+        [
+          id,
+          vacancyId,
+          vacancyTitle,
+          startupId,
+          startupTitle,
+          startupLogoUrl,
+          applicant,
+          motivation,
+          files,
+          status,
+          createdAt,
+        ]
+      properties:
+        id:
+          type: string
+          example: a-77
+        vacancyId:
+          type: string
+          example: v-1
+        vacancyTitle:
+          type: string
+          example: ML Engineer
+        startupId:
+          type: string
+          example: s-1
+        startupTitle:
+          type: string
+          example: NeuroPilot AI
+        startupLogoUrl:
+          type: string
+          nullable: true
+          example: null
+        applicant:
+          $ref: '#/components/schemas/Applicant'
+        motivation:
+          type: string
+          description: Мотивационное письмо (не пустое).
+          example: Три года в NLP, есть опыт клинических текстов.
+        files:
+          type: array
+          maxItems: 5
+          items:
+            $ref: '#/components/schemas/ApplicationFile'
+        status:
+          $ref: '#/components/schemas/ApplicationStatus'
+        createdAt:
+          type: string
+          format: date-time
+          example: '2026-10-20T09:10:00.000Z'
+
+    ApplyInput:
+      type: object
+      required: [motivation, files]
+      properties:
+        motivation:
+          type: string
+          minLength: 1
+          description: После `trim()` не должен быть пустым.
+          example: Три года в NLP, есть опыт клинических текстов и разметки данных.
+        files:
+          type: array
+          maxItems: 5
+          description: |
+            Ранее загруженные объекты со `scope = application-attachment`.
+            Клиентские `name`/`size`/`url` игнорируются — backend берёт их из индекса хранилища.
+          items:
+            $ref: '#/components/schemas/ApplicationFile'
+
+    ApplicationPage:
+      allOf:
+        - $ref: '#/components/schemas/PaginatedResult'
+        - type: object
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/Application'
+
+    # ── Статистика ─────────────────────────────────────────────────────────────
+    DailyActivityPoint:
+      type: object
+      required: [date, views, applications]
+      properties:
+        date:
+          type: string
+          format: date
+          description: Календарный день (UTC), `YYYY-MM-DD`.
+          example: '2026-10-20'
+        views:
+          type: integer
+          minimum: 0
+          example: 21
+        applications:
+          type: integer
+          minimum: 0
+          example: 0
+
+    VacancyViewer:
+      type: object
+      required: [user, viewedAt]
+      properties:
+        user:
+          $ref: '#/components/schemas/Applicant'
+        viewedAt:
+          type: string
+          format: date-time
+          example: '2026-10-20T18:42:00.000Z'
+
+    VacancyStats:
+      type: object
+      required:
+        [
+          vacancyId,
+          vacancyTitle,
+          startupTitle,
+          startupLogoUrl,
+          totalViews,
+          totalApplications,
+          daily,
+          viewers,
+          applications,
+        ]
+      properties:
+        vacancyId:
+          type: string
+          example: v-1
+        vacancyTitle:
+          type: string
+          example: ML Engineer
+        startupTitle:
+          type: string
+          example: NeuroPilot AI
+        startupLogoUrl:
+          type: string
+          nullable: true
+          example: null
+        totalViews:
+          type: integer
+          minimum: 0
+          description: Все уникальные просмотры за всё время.
+          example: 940
+        totalApplications:
+          type: integer
+          minimum: 0
+          example: 8
+        daily:
+          type: array
+          description: Ровно 14 точек, по возрастанию даты, включая сегодня (UTC).
+          minItems: 14
+          maxItems: 14
+          items:
+            $ref: '#/components/schemas/DailyActivityPoint'
+        viewers:
+          type: array
+          description: До 20 последних просмотров, по убыванию `viewedAt`.
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/VacancyViewer'
+        applications:
+          type: array
+          description: Все отклики вакансии, по убыванию `createdAt`.
+          items:
+            $ref: '#/components/schemas/Application'
+
+    TrackViewResult:
+      type: object
+      required: [tracked]
+      properties:
+        tracked:
+          type: boolean
+          description: '`true` — просмотр создан; `false` — уже был сегодня.'
+          example: true
+
+    # ── Профиль ────────────────────────────────────────────────────────────────
+    ProfileDashboard:
+      type: object
+      required: [user, recentStartups, myVacancies, myApplications, totals]
+      properties:
+        user:
+          $ref: '#/components/schemas/UserProfile'
+        recentStartups:
+          type: array
+          description: До 6 стартапов пользователя, по `updatedAt` DESC.
+          maxItems: 6
+          items:
+            $ref: '#/components/schemas/StartupSummary'
+        myVacancies:
+          type: array
+          description: До 5 вакансий, по откликам DESC, затем по просмотрам DESC.
+          maxItems: 5
+          items:
+            $ref: '#/components/schemas/VacancyListItem'
+        myApplications:
+          type: array
+          description: До 5 последних откликов пользователя.
+          maxItems: 5
+          items:
+            $ref: '#/components/schemas/Application'
+        totals:
+          type: object
+          required: [startups, vacancies, applications]
+          properties:
+            startups:
+              type: integer
+              minimum: 0
+              example: 1
+            vacancies:
+              type: integer
+              minimum: 0
+              example: 3
+            applications:
+              type: integer
+              minimum: 0
+              example: 2
+
+    # ── Файлы ──────────────────────────────────────────────────────────────────
+    FileUploadScope:
+      type: string
+      description: |
+        Политика хранения и валидации. Неизвестное значение сервер трактует как
+        `application-attachment` (мягкая деградация, как в mock).
+      enum: [startup-logo, application-attachment]
+      example: startup-logo
+
+    StoredFile:
+      type: object
+      description: Дескриптор объекта в хранилище.
+      required: [id, name, size, mimeType, url, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Ключ объекта, сгенерированный сервером.
+          example: 6f1c2c0e-6a2f-4d7b-9a51-8f3a2d1b9c40
+        name:
+          type: string
+          description: Исходное имя файла (метаданные, не путь).
+          example: neuropilot-logo.png
+        size:
+          type: integer
+          description: Размер в байтах.
+          example: 48120
+        mimeType:
+          type: string
+          example: image/png
+        url:
+          type: string
+          description: Same-origin URL через прокси backend.
+          example: /api/v1/files/6f1c2c0e-6a2f-4d7b-9a51-8f3a2d1b9c40
+        createdAt:
+          type: string
+          format: date-time
+          example: '2026-10-20T21:00:00.000Z'
+
+    DeleteResult:
+      type: object
+      required: [deleted]
+      properties:
+        deleted:
+          type: boolean
+          example: true

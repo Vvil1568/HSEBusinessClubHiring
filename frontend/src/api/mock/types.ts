@@ -13,15 +13,16 @@ export interface DbStoredFile extends StoredFile {
   storageKey: string;
 }
 
+/**
+ * Mock user. Mirrors `users` from the ERD: the platform stores Telegram data
+ * only (id, first/last name, photo) and keeps no nick, email or position.
+ */
 export interface DbUser {
   id: string;
+  telegramId: number;
   firstName: string;
   lastName: string;
-  nick: string;
-  avatarUrl: string | null;
-  email: string;
-  position: string;
-  company: string | null;
+  photoUrl: string | null;
 }
 
 export interface DbStartup {
@@ -63,6 +64,9 @@ export interface DbView {
   userId: string;
   viewedAt: string;
 }
+
+/** Bump when the shape changes, otherwise the stored snapshot is re-seeded. */
+export const MOCK_DB_VERSION = 3;
 
 export interface MockDatabase {
   version: number;

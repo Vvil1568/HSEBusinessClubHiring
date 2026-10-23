@@ -13,6 +13,7 @@ import { ActivityChart } from '../features/vacancies/components/ActivityChart';
 import { ApplicationReviewCard } from '../features/vacancies/components/ApplicationReviewCard';
 import { StartupLogo, UserAvatar } from '../components/common/StartupLogo';
 import { ErrorState } from '../components/common/ErrorState';
+import { getUserDisplayName } from '../utils/format';
 import { StatPill } from '../components/common/StatPill';
 import { PageHeader } from '../components/layout/PageHeader';
 import { palette } from '../theme/tokens';
@@ -207,15 +208,15 @@ export const VacancyStatsPage = () => {
                           <UserAvatar
                             firstName={viewer.user.firstName}
                             lastName={viewer.user.lastName}
-                            avatarUrl={viewer.user.avatarUrl}
+                            photoUrl={viewer.user.photoUrl}
                             size={32}
                           />
                           <div style={{ minWidth: 0 }}>
                             <div style={{ fontSize: 13, fontWeight: 600 }}>
-                              {viewer.user.firstName} {viewer.user.lastName}
+                              {getUserDisplayName(viewer.user)}
                             </div>
                             <div style={{ fontSize: 11, color: palette.textMuted }}>
-                              @{viewer.user.nick} · {dayjs(viewer.viewedAt).format('D MMM, HH:mm')}
+                              {dayjs(viewer.viewedAt).format('D MMM, HH:mm')}
                             </div>
                           </div>
                         </div>

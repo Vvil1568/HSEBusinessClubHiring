@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { BrowserRouter } from 'react-router-dom';
 import { appTheme } from './theme/appTheme';
+import { AuthGate } from './features/auth/components/AuthGate';
 import { AppLayout } from './components/layout/AppLayout';
 import { ProfilePage } from './pages/ProfilePage';
 import { ProfileListsPage } from './pages/ProfileListsPage';
@@ -29,26 +30,30 @@ export const App = () => (
     <AntdApp>
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
-          <AppLayout>
-            <Routes>
-              <Route path="/" element={<Navigate to="/startup" replace />} />
-              <Route path="/profile" element={<ProfilePage />} />
-              <Route path="/profile/startups" element={<ProfileListsPage kind="startups" />} />
-              <Route path="/profile/vacancies" element={<ProfileListsPage kind="vacancies" />} />
-              <Route
-                path="/profile/applications"
-                element={<ProfileListsPage kind="applications" />}
-              />
-              <Route path="/startup" element={<StartupsPage />} />
-              <Route path="/startups/new" element={<StartupEditorPage mode="create" />} />
-              <Route path="/startup/:id" element={<StartupPage />} />
-              <Route path="/startup/:id/edit" element={<StartupEditorPage mode="edit" />} />
-              <Route path="/vacancies" element={<VacanciesPage />} />
-              <Route path="/vacancy/:id" element={<VacancyPage />} />
-              <Route path="/vacancy/:id/stats" element={<VacancyStatsPage />} />
-              <Route path="*" element={<Navigate to="/startup" replace />} />
-            </Routes>
-          </AppLayout>
+          {/* Telegram auth runs before any request, so pages always start with
+              an established session instead of a 401. */}
+          <AuthGate>
+            <AppLayout>
+              <Routes>
+                <Route path="/" element={<Navigate to="/startup" replace />} />
+                <Route path="/profile" element={<ProfilePage />} />
+                <Route path="/profile/startups" element={<ProfileListsPage kind="startups" />} />
+                <Route path="/profile/vacancies" element={<ProfileListsPage kind="vacancies" />} />
+                <Route
+                  path="/profile/applications"
+                  element={<ProfileListsPage kind="applications" />}
+                />
+                <Route path="/startup" element={<StartupsPage />} />
+                <Route path="/startups/new" element={<StartupEditorPage mode="create" />} />
+                <Route path="/startup/:id" element={<StartupPage />} />
+                <Route path="/startup/:id/edit" element={<StartupEditorPage mode="edit" />} />
+                <Route path="/vacancies" element={<VacanciesPage />} />
+                <Route path="/vacancy/:id" element={<VacancyPage />} />
+                <Route path="/vacancy/:id/stats" element={<VacancyStatsPage />} />
+                <Route path="*" element={<Navigate to="/startup" replace />} />
+              </Routes>
+            </AppLayout>
+          </AuthGate>
         </BrowserRouter>
       </QueryClientProvider>
     </AntdApp>

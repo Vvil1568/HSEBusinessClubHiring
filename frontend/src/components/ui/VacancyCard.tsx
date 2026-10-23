@@ -90,8 +90,8 @@ export const VacancyCard = ({ vacancy, onOpen, showApplicantsAlert = false }: Va
       </div>
       <div style={{ display: 'flex', gap: 14, marginTop: 6 }}>
         <StatPill
-          // Same send-arrow glyph as the "Отклики" stat elsewhere, so the metric
-          // is recognisable at a glance instead of reading as a warning.
+          // Same send-arrow glyph as the applications stat elsewhere, so the
+          // metric reads as a counter rather than a warning.
           icon={<SendOutlined />}
           value={vacancy.applicationsCount}
           title="Отклики"

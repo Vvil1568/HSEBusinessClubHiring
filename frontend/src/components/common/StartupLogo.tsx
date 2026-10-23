@@ -56,12 +56,23 @@ export const StartupLogo = ({ title, logoUrl, size = 48, radius = 14 }: StartupL
 interface UserAvatarProps {
   firstName: string;
   lastName: string;
-  avatarUrl: string | null;
+  /**
+   * Telegram `photo_url`: an absolute CDN URL. Local `/api/...` URLs are
+   * supported too and resolved through the file proxy.
+   */
+  photoUrl: string | null;
   size?: number;
 }
 
-export const UserAvatar = ({ firstName, lastName, avatarUrl, size = 40 }: UserAvatarProps) => {
-  const src = useFileSrc(avatarUrl);
+export const UserAvatar = ({ firstName, lastName, photoUrl, size = 40 }: UserAvatarProps) => {
+  // Telegram already returns a public URL, so proxying it would only break the
+  // load. Everything else (storage objects, data URIs) goes through
+  // `useFileSrc`, which handles authorized reads.
+  const isRemote = Boolean(photoUrl && /^https?:\/\//i.test(photoUrl));
+  const resolved = useFileSrc(isRemote ? null : photoUrl);
+  const src = isRemote ? photoUrl : resolved;
+
+  const initials = `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase() || '?';
 
   return (
     <Avatar
@@ -74,7 +85,7 @@ export const UserAvatar = ({ firstName, lastName, avatarUrl, size = 40 }: UserAv
         flexShrink: 0,
       }}
     >
-      {`${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase()}
+      {initials}
     </Avatar>
   );
 };

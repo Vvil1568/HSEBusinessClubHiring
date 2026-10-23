@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { api } from '../../../api/client';
+import { api, getAuthSession } from '../../../api/client';
 import { queryKeys } from '../../../api/queryKeys';
 import type { Applicant } from '../../../types';
 
@@ -8,9 +8,15 @@ const fetchCurrentUser = async (): Promise<Applicant> => {
   return response.data;
 };
 
+/**
+ * Current user profile. The session is time-limited (see `expiresAt` from
+ * `POST /auth/telegram`), so the profile must not be cached forever; a `401`
+ * puts the app back into the "restart Mini App" state.
+ */
 export const useCurrentUser = () =>
   useQuery({
     queryKey: queryKeys.auth.me(),
     queryFn: fetchCurrentUser,
-    staleTime: Infinity,
+    enabled: getAuthSession().authenticated,
+    staleTime: 1000 * 60 * 5,
   });

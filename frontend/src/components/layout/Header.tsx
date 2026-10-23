@@ -77,8 +77,8 @@ export const Header = () => {
             >
               <UserAvatar
                 firstName={user?.firstName ?? 'П'}
-                lastName={user?.lastName ?? 'П'}
-                avatarUrl={user?.avatarUrl ?? null}
+                lastName={user?.lastName ?? ''}
+                photoUrl={user?.photoUrl ?? null}
                 size={38}
               />
             </button>

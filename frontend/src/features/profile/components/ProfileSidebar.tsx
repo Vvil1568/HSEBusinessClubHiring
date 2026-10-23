@@ -1,7 +1,8 @@
-import { MailOutlined, SolutionOutlined, AppstoreOutlined, SendOutlined } from '@ant-design/icons';
+import { SolutionOutlined, AppstoreOutlined, SendOutlined } from '@ant-design/icons';
 import type { UserProfile } from '../../../types';
 import { palette } from '../../../theme/tokens';
 import { UserAvatar } from '../../../components/common/StartupLogo';
+import { getUserDisplayName } from '../../../utils/format';
 
 interface ProfileSidebarProps {
   user: UserProfile;
@@ -30,31 +31,14 @@ export const ProfileSidebar = ({ user, totals, compact = false }: ProfileSidebar
     <UserAvatar
       firstName={user.firstName}
       lastName={user.lastName}
-      avatarUrl={user.avatarUrl}
+      photoUrl={user.photoUrl}
       size={compact ? 84 : 120}
     />
     <div>
+      {/* The Mini App profile is Telegram data: no nick, position or company. */}
       <div style={{ fontSize: compact ? 20 : 22, fontWeight: 700, color: palette.text }}>
-        {user.firstName} {user.lastName}
+        {getUserDisplayName(user)}
       </div>
-      <div style={{ fontSize: 14, color: palette.textSecondary, marginTop: 2 }}>@{user.nick}</div>
-    </div>
-
-    <div
-      style={{
-        fontSize: 13,
-        color: palette.textSecondary,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 4,
-        alignItems: compact ? 'center' : 'flex-start',
-      }}
-    >
-      <span>{user.position}</span>
-      {user.company ? <span style={{ color: palette.textMuted }}>{user.company}</span> : null}
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: palette.textMuted }}>
-        <MailOutlined /> {user.email}
-      </span>
     </div>
 
     <div

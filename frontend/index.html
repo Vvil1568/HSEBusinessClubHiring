@@ -6,6 +6,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#080C14" />
     <title>Бизнес-клуб — стартапы и вакансии</title>
+    <!-- Mini App SDK. Loaded synchronously and before the bundle so that
+         `Telegram.WebApp.initData` is available on the first render; otherwise
+         auth starts with an empty string and gets a 401. Outside the Telegram
+         client the script simply does not define `window.Telegram`. -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
   </head>
   <body>
     <div id="root"></div>

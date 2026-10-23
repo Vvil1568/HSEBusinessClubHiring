@@ -2,7 +2,15 @@ import type { StartupStage, VacancyTemplate } from '../../types';
 import { buildLogoDataUri } from '../../utils/logo';
 import { createRandom, daysAgoIso, pickOne, randomInt } from './random';
 import { CURRENT_USER_ID, seedUsers } from './seedUsers';
-import type { DbApplication, DbStartup, DbVacancy, DbUser, DbView, MockDatabase } from './types';
+import {
+  MOCK_DB_VERSION,
+  type DbApplication,
+  type DbStartup,
+  type DbVacancy,
+  type DbUser,
+  type DbView,
+  type MockDatabase,
+} from './types';
 
 interface VacancySeed {
   title: string;
@@ -550,7 +558,7 @@ export const buildSeedDatabase = (): MockDatabase => {
   ];
 
   return {
-    version: 1,
+    version: MOCK_DB_VERSION,
     currentUserId: CURRENT_USER_ID,
     users,
     startups,

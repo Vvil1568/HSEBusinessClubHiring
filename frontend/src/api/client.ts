@@ -1,8 +1,29 @@
-import axios, { AxiosError, type AxiosAdapter, type AxiosResponse, type InternalAxiosRequestConfig } from 'axios';
+import axios, {
+  AxiosError,
+  type AxiosAdapter,
+  type AxiosResponse,
+  type InternalAxiosRequestConfig,
+} from 'axios';
 import { MockHttpError, resolveMockRequest } from './mock/server';
+import { getInitData } from '../telegram/webApp';
 
 const MOCK_LATENCY_MIN = 180;
 const MOCK_LATENCY_MAX = 520;
+
+/**
+ * Active Mini App session.
+ *
+ * `POST /auth/telegram` trades `initData` for an HttpOnly cookie. The
+ * `X-Telegram-Init-Data` header is sent as well, so requests still work when
+ * cookies are blocked (third-party WebView).
+ */
+export interface AuthSessionState {
+  authenticated: boolean;
+}
+
+const session: AuthSessionState = { authenticated: false };
+
+export const getAuthSession = (): AuthSessionState => session;
 
 const delay = (): Promise<void> =>
   new Promise((resolve) => {
@@ -31,7 +52,7 @@ const mockAdapter: AxiosAdapter = async (config: InternalAxiosRequestConfig): Pr
 
   const method = (config.method ?? 'get').toUpperCase();
   const basePath = config.url ?? '/';
-  const path = basePath.replace(/^\/api/, '');
+  const path = basePath.replace(/^\/api(\/v1)?/, '');
   const params = (config.params ?? {}) as Record<string, unknown>;
   const body = parsePayload(config.data);
 
@@ -68,11 +89,42 @@ const mockAdapter: AxiosAdapter = async (config: InternalAxiosRequestConfig): Pr
   }
 };
 
+/** Opt-in only: the mock must never be the default in production builds. */
+const useMock = import.meta.env.VITE_USE_MOCK === '1';
+
+/** Platform contract is `/api/v1`; relative `/api` is proxied by Vite and nginx. */
+const baseURL = import.meta.env.VITE_API_URL ?? '/api';
+
 export const api = axios.create({
-  baseURL: '/api',
+  baseURL,
   headers: { 'Content-Type': 'application/json' },
-  adapter: mockAdapter,
+  // Required for the HttpOnly session cookie on cross-origin deploys.
+  withCredentials: true,
+  ...(useMock ? { adapter: mockAdapter } : {}),
 });
+
+// `initData` is reissued on every Mini App launch, so read it per request.
+api.interceptors.request.use((config) => {
+  const initData = getInitData();
+  if (initData) {
+    config.headers.set('X-Telegram-Init-Data', initData);
+  }
+  return config;
+});
+
+/**
+ * `401` means `initData` is expired or its signature is invalid. Retrying with
+ * the same payload is pointless, so only the session state is reset.
+ */
+api.interceptors.response.use(
+  (response) => response,
+  (error: unknown) => {
+    if (error instanceof AxiosError && error.response?.status === 401) {
+      session.authenticated = false;
+    }
+    return Promise.reject(error);
+  },
+);
 
 /**
  * True while requests are served by the in-browser mock instead of a real

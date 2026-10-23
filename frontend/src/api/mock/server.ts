@@ -375,9 +375,9 @@ const updateStartup = (startupId: string, payload: StartupInput): Startup => {
     startup.shortDescription = payload.shortDescription;
     startup.description = payload.description;
     startup.stage = payload.stage;
-    // Assign unconditionally: `null` means the owner removed the logo and the
-    // UI must fall back to the idea bulb. Regenerating a placeholder here was
-    // the reason "Убрать логотип" appeared to do nothing.
+    // Assign unconditionally: `null` means the logo was removed and the UI must
+    // fall back to the idea bulb. Regenerating a placeholder here would make
+    // the "Remove logo" action look like a no-op.
     startup.logoUrl = payload.logoUrl;
     startup.updatedAt = now;
 
@@ -438,6 +438,13 @@ const registerVacancyView = (vacancyId: string): { tracked: boolean } => {
 
   const userId = getCurrentUser().id;
   const todayKey = new Date().toISOString().slice(0, 10);
+
+  // Owner views are not counted, otherwise `totalViews` is inflated by the
+  // owner opening their own card (matches the API contract).
+  const startup = findStartup(vacancy.startupId);
+  if (startup?.ownerId === userId) {
+    return { tracked: false };
+  }
 
   return mutateDatabase((database) => {
     const alreadyTracked = database.views.some(
@@ -632,6 +639,24 @@ export const resolveMockRequest = (
     if (normalizedMethod === 'delete') {
       return { status: 200, data: deleteStoredFile(segments[1]) };
     }
+  }
+
+  if (normalizedMethod === 'post' && path === '/auth/telegram') {
+    // The mock cannot verify HMAC (the bot secret lives on the backend), so it
+    // only reproduces the response contract. Empty `initData` is rejected the
+    // same way as in production: the app runs outside Telegram.
+    const payload = body as { initData?: unknown } | null;
+    const initData = typeof payload?.initData === 'string' ? payload.initData.trim() : '';
+    if (!initData) {
+      throw new MockHttpError(401, 'Откройте приложение через Telegram');
+    }
+    return {
+      status: 200,
+      data: {
+        user: toUserProfile(getCurrentUser()),
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      },
+    };
   }
 
   if (normalizedMethod === 'get' && path === '/auth/me') {
