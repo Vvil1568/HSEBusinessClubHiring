@@ -241,12 +241,14 @@ export const VacancyStatsPage = () => {
                       style={{
                         display: 'grid',
                         // The section is full-width now, so use the extra room
-                        // for several cards per row. `auto-fit` + `minmax(320px, …)`
-                        // collapses back to a single column on narrow desktops
-                        // without a second breakpoint.
-                        gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+                        // for several cards per row. `minmax(min(100%, 320px), 1fr)`
+                        // keeps the 320 px card minimum on desktop, but never
+                        // exceeds the available track on a narrow phone — a plain
+                        // `320px` minimum overflowed the applications frame there.
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))',
                         gap: 12,
                         minWidth: 0,
+                        maxWidth: '100%',
                       }}
                     >
                       {stats.applications.map((application) => (

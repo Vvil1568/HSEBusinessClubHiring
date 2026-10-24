@@ -145,7 +145,7 @@ export const AuthGate = ({ children }: AuthGateProps) => {
     <>
       {devMode ? (
         <Tag color="gold" style={{ position: 'fixed', left: 16, bottom: 16, zIndex: 60, margin: 0 }}>
-          DEV · {readDevUser() ?? config?.defaultDevUser ?? 'default'}
+          DEV
         </Tag>
       ) : null}
       {children}

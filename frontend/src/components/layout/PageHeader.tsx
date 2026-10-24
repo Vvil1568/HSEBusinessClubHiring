@@ -4,6 +4,16 @@ import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { palette } from '../../theme/tokens';
 
+/**
+ * React Router stores the position of the current entry in `history.state.idx`.
+ * `0` means the app was opened on this URL directly (deep link or reload), so
+ * there is no in-app page to return to and the explicit fallback must be used.
+ */
+const hasPreviousEntry = (): boolean => {
+  const state = window.history.state as { idx?: number } | null;
+  return typeof state?.idx === 'number' && state.idx > 0;
+};
+
 interface PageHeaderProps {
   title: string;
   subtitle?: string;
@@ -37,7 +47,17 @@ export const PageHeader = ({
           <Button
             type="text"
             aria-label="Назад"
-            onClick={() => navigate(backFallback)}
+            onClick={() => {
+              // Browsers' back stack is what the user expects: returning to the
+              // exact list (with its filters/page) they came from, not to a
+              // hardcoded route. The fallback only covers deep links/reloads,
+              // where there is no previous in-app entry.
+              if (hasPreviousEntry()) {
+                navigate(-1);
+                return;
+              }
+              navigate(backFallback);
+            }}
             icon={<ArrowLeftOutlined />}
             style={{
               width: 40,

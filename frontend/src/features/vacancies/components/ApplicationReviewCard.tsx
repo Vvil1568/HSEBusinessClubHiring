@@ -79,9 +79,21 @@ export const ApplicationReviewCard = ({
         border: `1px solid ${palette.border}`,
         background: palette.surface,
         minWidth: 0,
+        maxWidth: '100%',
+        boxSizing: 'border-box',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          minWidth: 0,
+          // The status tag is as wide as its label ("На рассмотрении"), so the
+          // row must be allowed to wrap instead of pushing past the card edge.
+          flexWrap: 'wrap',
+        }}
+      >
         <UserAvatar
           firstName={application.applicant.firstName}
           lastName={application.applicant.lastName}
@@ -97,7 +109,17 @@ export const ApplicationReviewCard = ({
         <StatusTag status={application.status} />
       </div>
 
-      <p style={{ margin: 0, fontSize: 13, color: palette.textSecondary, lineHeight: 1.55 }}>
+      <p
+        style={{
+          margin: 0,
+          fontSize: 13,
+          color: palette.textSecondary,
+          lineHeight: 1.55,
+          // A long unbroken word (URL, file name) would otherwise widen the
+          // card past the applications frame on a phone.
+          overflowWrap: 'anywhere',
+        }}
+      >
         {application.motivation}
       </p>
 

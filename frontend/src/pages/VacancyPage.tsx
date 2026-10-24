@@ -1,4 +1,10 @@
-import { BarChartOutlined, EyeOutlined, SendOutlined, ShoppingOutlined } from '@ant-design/icons';
+import {
+  BarChartOutlined,
+  EyeOutlined,
+  InfoCircleOutlined,
+  SendOutlined,
+  ShoppingOutlined,
+} from '@ant-design/icons';
 import { Alert, Button, Skeleton } from 'antd';
 import dayjs from 'dayjs';
 import { useEffect, useState } from 'react';
@@ -175,18 +181,56 @@ export const VacancyPage = () => {
 
       <div style={{ marginTop: 24 }}>
         {vacancy.isOwner ? (
-          <Alert
-            type="info"
-            showIcon
-            style={{ borderRadius: 12 }}
-            message="Это вакансия вашего стартапа"
-            description="Отклики и просмотры доступны в разделе статистики."
-            action={
-              <Button size="small" onClick={() => navigate(`/vacancy/${vacancy.id}/stats`)}>
+          /*
+           * Not <Alert>: with an `action` slot antd renders the description in
+           * the same flex track as the button, so on wide screens it collapsed
+           * to the width of the message text. Here the header row holds the
+           * icon, the message and the button, while the description is a block
+           * of its own underneath — it always spans the full width of the card
+           * and continues under the button.
+           */
+          <div
+            style={{
+              padding: '12px 16px',
+              borderRadius: 12,
+              border: `1px solid ${palette.primary}`,
+              background: `${palette.primary}1A`,
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                alignItems: 'center',
+                gap: 12,
+                minWidth: 0,
+              }}
+            >
+              <InfoCircleOutlined style={{ color: palette.primaryHover, fontSize: 18 }} />
+              <div style={{ flex: '1 1 auto', minWidth: 0, fontSize: 14, fontWeight: 600, color: palette.text }}>
+                Это вакансия вашего стартапа
+              </div>
+              <Button
+                size="small"
+                onClick={() => navigate(`/vacancy/${vacancy.id}/stats`)}
+                style={{ flexShrink: 0, marginLeft: 'auto' }}
+              >
                 Открыть статистику
               </Button>
-            }
-          />
+            </div>
+            <div
+              style={{
+                marginTop: 6,
+                fontSize: 13,
+                lineHeight: 1.5,
+                color: palette.textSecondary,
+                // Aligns the text with the message above (18 px icon + 12 px gap).
+                paddingLeft: 30,
+              }}
+            >
+              Отклики и просмотры доступны в разделе статистики.
+            </div>
+          </div>
         ) : vacancy.myApplicationStatus ? (
           <Alert
             type="info"
