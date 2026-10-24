@@ -1,0 +1,47 @@
+# Standalone stub frontend: no PostgreSQL, no backend, no dufs.
+#
+# The entire API is served by the in-browser mock adapter
+# (`frontend/src/api/mock/`), so this stack is a single Vite dev server.
+# It is meant for UI review and design demos, never for data persistence:
+# state lives in `localStorage` and is lost when the browser profile is cleared.
+#
+#   docker compose -f docker-compose.mockfront.yml up --build
+#   open http://localhost:3000
+#
+# `VITE_USE_MOCK` must be exactly `1` — `client.ts` compares against that
+# literal, so `true`/`yes` would silently fall back to the real transport and
+# produce connection errors against a backend that does not exist here.
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+      args:
+        # The mock ignores the URL, but the bundle must still look like the
+        # platform contract so nothing else needs special-casing.
+        VITE_API_URL: /api/v1
+        VITE_USE_MOCK: '1'
+    container_name: app-frontend-mock
+    restart: unless-stopped
+    environment:
+      # Read at dev-server start by `vite.config.ts`. The proxy is never hit
+      # while the mock adapter is active; pointing it at a closed local port
+      # makes a stray request fail instantly instead of stalling on DNS
+      # resolution of the `backend` host, which this stack does not define.
+      VITE_BACKEND_URL: http://127.0.0.1:8000
+    ports:
+      - "${MOCK_FRONTEND_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3000/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      # Covers the first Vite start (dependency pre-bundling) on a cold cache.
+      start_period: 60s
+    networks:
+      - mockfront-network
+
+networks:
+  mockfront-network:
+    name: app-mockfront-network
+    driver: bridge

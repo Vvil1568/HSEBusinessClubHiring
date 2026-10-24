@@ -1,0 +1,22 @@
+# Host artefacts must never reach the image: a Windows/macOS `node_modules`
+# copied over the container-installed one shadows platform-specific binaries
+# (esbuild, rollup) and breaks the dev server with a cryptic native error.
+node_modules
+dist
+dist-ssr
+.vite
+
+# Local overrides and caches.
+*.local
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor and VCS noise.
+.git
+.gitignore
+.vscode
+.idea
+.DS_Store
