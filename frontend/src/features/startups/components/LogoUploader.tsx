@@ -1,6 +1,6 @@
 import { DeleteOutlined, PictureOutlined, UploadOutlined } from '@ant-design/icons';
 import { App, Button, Progress, Upload } from 'antd';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { extractErrorMessage } from '../../../api/client';
 import { extractFileId } from '../../../api/files';
 import { palette } from '../../../theme/tokens';
@@ -27,7 +27,13 @@ export const LogoUploader = ({ value, onChange }: LogoUploaderProps) => {
   // must resolve it instead of pointing `<img>` at the raw storage URL.
   const previewSrc = useFileSrc(value);
 
-  useEffect(() => () => upload.abortAll(), [upload]);
+  // Do NOT add `useEffect(() => () => upload.abortAll(), [upload])` here.
+  // `useFileUpload` returns a fresh object on every render, so that cleanup
+  // fired after *each* re-render — and the first `setPercent(0)` in
+  // `beforeUpload` already re-renders the component, immediately aborting the
+  // request that was just started. The browser reported it as `canceled`.
+  // `useFileUpload` aborts its own in-flight requests on unmount, so no extra
+  // cleanup is needed.
 
   const handleRemove = () => {
     // `null` must reach the backend unchanged: the previous implementation
