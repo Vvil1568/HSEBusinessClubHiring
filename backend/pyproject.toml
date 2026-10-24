@@ -1,7 +1,7 @@
 [project]
 name = "backend"
 version = "0.1.0"
-description = "Add your description here"
+description = "Business Club hiring platform backend"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -18,8 +18,38 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "aiosqlite>=0.21.0",
     "mypy>=2.4.0",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "ruff>=0.17.2",
 ]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+filterwarnings = ["error::DeprecationWarning:app.*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC", "RUF"]
+# RUF001-RUF003 flag Cyrillic characters that are intentional: every user-facing
+# string in this service is Russian, per the API contract.
+ignore = ["B008", "RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+warn_unreachable = true
+disallow_any_generics = true
+
+[[tool.mypy.overrides]]
+module = ["aiosqlite.*"]
+ignore_missing_imports = true

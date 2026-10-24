@@ -34,9 +34,15 @@ services:
       SESSION_TTL: ${SESSION_TTL:-86400}
       SESSION_SECRET: ${SESSION_SECRET}
       FILES_PUBLIC_PREFIX: /api/v1/files
+      STORAGE_BACKEND: dufs
+      DUFS_BASE_URL: http://dufs:5000
+      DUFS_AUTH: ${DUFS_AUTH:-}
+      STORAGE_BUDGET_BYTES: ${STORAGE_BUDGET_BYTES:-536870912}
     depends_on:
       postgres:
         condition: service_healthy
+      dufs:
+        condition: service_started
     networks:
       - app-internal-network
 
