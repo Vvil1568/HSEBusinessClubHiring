@@ -34,7 +34,6 @@ class Settings(BaseSettings):
     storage_backend: str = "local"
     local_storage_path: str = "./data/uploads"
     dufs_base_url: str = "http://dufs:5000"
-    dufs_auth: str = ""
     storage_budget_bytes: int = 512 * 1024 * 1024
     max_logo_bytes: int = 2 * 1024 * 1024
     max_attachment_bytes: int = 10 * 1024 * 1024
@@ -57,13 +56,6 @@ class Settings(BaseSettings):
     def dev_mode_enabled(self) -> bool:
         """DEV mode is never active in a production environment."""
         return self.dev_mode and not self.is_production
-
-    @property
-    def dufs_credentials(self) -> tuple[str, str] | None:
-        username, separator, password = self.dufs_auth.partition(":")
-        if not separator or not username:
-            return None
-        return username, password
 
     def file_url(self, file_id: uuid.UUID) -> str:
         return f"{self.files_public_prefix.rstrip('/')}/{file_id}"

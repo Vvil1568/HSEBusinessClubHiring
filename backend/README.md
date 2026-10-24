@@ -108,7 +108,6 @@ Presets (`backend/app/core/dev_users.py`) are deterministic, seeded on startup:
 | `STORAGE_BACKEND` | `local` | `local` or `dufs` |
 | `LOCAL_STORAGE_PATH` | `./data/uploads` | Used when `STORAGE_BACKEND=local` |
 | `DUFS_BASE_URL` | `http://dufs:5000` | dufs base URL |
-| `DUFS_AUTH` | – | `user:password` for dufs basic auth |
 | `STORAGE_BUDGET_BYTES` | `536870912` | Total attachment budget → `507` when exceeded |
 
 | Limit | Value |

@@ -28,14 +28,12 @@ class FileStorage(Protocol):
 
 
 class DufsFileStorage:
-    def __init__(self, base_url: str, credentials: tuple[str, str] | None) -> None:
+    def __init__(self, base_url: str) -> None:
         self._base_url = base_url.rstrip("/")
-        self._auth = credentials
 
     def _client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(
             timeout=httpx.Timeout(30.0, connect=5.0),
-            auth=self._auth,
             follow_redirects=False,
         )
 
@@ -170,7 +168,7 @@ def build_storage(settings: Settings) -> FileStorage:
 
     created: FileStorage
     if settings.storage_backend == "dufs":
-        created = DufsFileStorage(settings.dufs_base_url, settings.dufs_credentials)
+        created = DufsFileStorage(settings.dufs_base_url)
     else:
         created = LocalFileStorage(Path(settings.local_storage_path))
     _STORAGE_SINGLETONS[cache_key] = created
