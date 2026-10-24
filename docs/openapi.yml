@@ -152,6 +152,117 @@ paths:
   # ─────────────────────────────────────────────────────────────────────────────
   # Auth
   # ─────────────────────────────────────────────────────────────────────────────
+  /auth/app-config:
+    get:
+      tags: [Auth]
+      operationId: getAppConfig
+      summary: Публичная конфигурация приложения
+      description: |
+        Не требует авторизации и не раскрывает секретов. Возвращает два независимых флага:
+
+          - `production` — окружение развёртывания. Фронтенд опирается на него, чтобы
+            **не показывать** кнопку входа/демо-режима вне Telegram;
+          - `devMode` — активен ли DEV-режим. При `false` список `devUsers` всегда пуст,
+            и переключатель тестовых пользователей не монтируется.
+
+        `devMode` вычисляется как `DEV_MODE && APP_ENV != production`, поэтому случайный
+        `DEV_MODE=1` в production-окружении не открывает тестовый контур.
+      security: []
+      x-frontend:
+        hook: useAppConfig
+        file: frontend/src/features/auth/api/useAppConfig.ts
+      responses:
+        '200':
+          description: Текущие переключатели окружения
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppConfig'
+              examples:
+                developmentWithDevMode:
+                  summary: Локальный DEV-режим
+                  value:
+                    production: false
+                    devMode: true
+                    defaultDevUser: founder
+                    devUsers:
+                      - key: founder
+                        label: Основатель стартапа
+                        description: Владеет стартапом с вакансиями и откликами.
+                        firstName: Иван
+                        lastName: Петров
+                        photoUrl: null
+                        telegramId: 900000001
+                        availableOutsideTelegram: true
+                      - key: real
+                        label: Реальный пользователь
+                        description: Текущий Telegram-аккаунт с проверенным initData.
+                        firstName: ''
+                        lastName: ''
+                        photoUrl: null
+                        telegramId: null
+                        availableOutsideTelegram: false
+                production:
+                  summary: Production
+                  value:
+                    production: true
+                    devMode: false
+                    defaultDevUser: founder
+                    devUsers: []
+
+  /auth/dev-login:
+    post:
+      tags: [Auth]
+      operationId: devLogin
+      summary: Переключить тестового пользователя (DEV)
+      description: |
+        Доступен только при активном DEV-режиме; в строгом режиме возвращает `404`,
+        чтобы не афишировать тестовый контур.
+
+        Для пресетов `founder`, `applicant` и `empty` подпись Telegram не проверяется —
+        сессия выдаётся сразу. Для `real` требуется реальный `X-Telegram-Init-Data`:
+        эндпоинт делегирует проверку в обычную строгую ветку.
+      security: []
+      x-frontend:
+        hook: useDevUserSwitch
+        file: frontend/src/features/auth/api/useTelegramAuth.ts
+      parameters:
+        - in: header
+          name: X-Telegram-Init-Data
+          required: false
+          description: Нужен только для пресета `real`.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user]
+              properties:
+                user:
+                  type: string
+                  enum: [founder, applicant, empty, real]
+      responses:
+        '200':
+          description: Сессия создана
+          headers:
+            Set-Cookie:
+              description: HttpOnly-сессия выбранного пользователя.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DevSession'
+        '404':
+          description: DEV-режим выключен, неизвестный пресет или нет initData для `real`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /auth/telegram:
     post:
       tags: [Auth]
@@ -1828,6 +1939,86 @@ components:
             Момент истечения cookie `hb_session`. После него любой запрос вернёт `401` и
             приложение потребует перезапуска Mini App.
           example: '2026-10-22T08:00:00.000Z'
+
+    DevUser:
+      type: object
+      description: Тестовый пользователь, доступный только в DEV-режиме.
+      required:
+        [key, label, description, firstName, lastName, photoUrl, telegramId, availableOutsideTelegram]
+      properties:
+        key:
+          type: string
+          enum: [founder, applicant, empty, real]
+          description: Идентификатор пресета; он же передаётся в `POST /auth/dev-login`.
+          example: founder
+        label:
+          type: string
+          example: Основатель стартапа
+        description:
+          type: string
+          description: Чем этот пользователь отличается по данным.
+          example: Владеет стартапом с вакансиями и откликами.
+        firstName:
+          type: string
+          example: Иван
+        lastName:
+          type: string
+          example: Петров
+        photoUrl:
+          type: string
+          nullable: true
+          example: null
+        telegramId:
+          type: integer
+          nullable: true
+          description: |
+            Синтетический `telegram_id` пресета. `null` у `real`, потому что его личность
+            приходит из подписанного `initData`, а не из фикстуры.
+          example: 900000001
+        availableOutsideTelegram:
+          type: boolean
+          description: |
+            `false` для `real` вне Telegram: пресет требует реального `X-Telegram-Init-Data`.
+          example: true
+
+    AppConfig:
+      type: object
+      description: Публичные переключатели окружения для Mini App.
+      required: [production, devMode, defaultDevUser, devUsers]
+      properties:
+        production:
+          type: boolean
+          description: |
+            `true` — вне Telegram входа нет, поэтому кнопка демо-режима во фронтенде
+            не отображается.
+          example: false
+        devMode:
+          type: boolean
+          description: |
+            `true` — серверная проверка подписи ослаблена, а фронтенд монтирует
+            переключатель пользователей.
+          example: true
+        defaultDevUser:
+          type: string
+          description: Пресет, от чьего имени работают запросы без cookie и `initData`.
+          example: founder
+        devUsers:
+          type: array
+          description: Пустой массив в строгом режиме.
+          items:
+            $ref: '#/components/schemas/DevUser'
+
+    DevSession:
+      allOf:
+        - $ref: '#/components/schemas/TelegramSession'
+        - type: object
+          required: [devUser]
+          properties:
+            devUser:
+              type: string
+              enum: [founder, applicant, empty, real]
+              description: Какой пресет сейчас активен.
+              example: founder
 
     # ── Стартапы ───────────────────────────────────────────────────────────────
     StartupStage:

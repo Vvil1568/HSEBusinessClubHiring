@@ -56,18 +56,11 @@ async def get_current_user(
 ) -> User:
     service = AuthService(session, settings)
     cookie_token = session_cookie or request.cookies.get(settings.session_cookie_name)
-    if cookie_token:
-        user = await service.resolve_session_cookie(cookie_token)
-        if user is not None:
-            await session.commit()
-            return user
-
-    if init_data_header:
-        user = await service.resolve_init_data_header(init_data_header)
-        await session.commit()
-        return user
-
-    raise AuthRequiredException()
+    user = await service.resolve_identity(cookie_token=cookie_token, init_data=init_data_header)
+    if user is None:
+        raise AuthRequiredException()
+    await session.commit()
+    return user
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
@@ -83,16 +76,11 @@ async def resolve_optional_user(
     """Best-effort resolution used by endpoints that tolerate anonymous callers."""
     service = AuthService(session, settings)
     cookie_token = session_cookie or request.cookies.get(settings.session_cookie_name)
-    if cookie_token:
-        user = await service.resolve_session_cookie(cookie_token)
-        if user is not None:
-            await session.commit()
-            return user
-    if init_data_header:
-        user = await service.resolve_init_data_header(init_data_header)
-        await session.commit()
-        return user
-    return None
+    user = await service.resolve_identity(cookie_token=cookie_token, init_data=init_data_header)
+    if user is None:
+        return None
+    await session.commit()
+    return user
 
 
 def build_auth_rate_limiter(settings: Settings) -> SlidingWindowRateLimiter:

@@ -1,4 +1,5 @@
 export type * from './api';
+export type * from './appConfig';
 export type * from './auth';
 export type * from './dashboard';
 export type * from './startup';

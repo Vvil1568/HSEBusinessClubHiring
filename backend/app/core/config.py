@@ -13,6 +13,11 @@ class Settings(BaseSettings):
     )
 
     app_env: str = "development"
+    # Opt-in test mode: exposes `/auth/dev*` and relaxes identity resolution.
+    # It is force-disabled when `APP_ENV` is production, so a stray `DEV_MODE=1`
+    # in a production .env can never widen the auth surface.
+    dev_mode: bool = False
+    dev_default_user: str = "founder"
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/businessclub"
 
     cors_allowed_origins: str = "http://localhost:5173"
@@ -47,6 +52,11 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.app_env.lower() in {"production", "prod"}
+
+    @property
+    def dev_mode_enabled(self) -> bool:
+        """DEV mode is never active in a production environment."""
+        return self.dev_mode and not self.is_production
 
     @property
     def dufs_credentials(self) -> tuple[str, str] | None:

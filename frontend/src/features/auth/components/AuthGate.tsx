@@ -1,14 +1,13 @@
-import { App, Button, Result, Spin } from 'antd';
-import { useEffect, useState, type ReactNode } from 'react';
+import { App, Button, Result, Spin, Tag } from 'antd';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { extractErrorMessage, getAuthSession, isMockApi } from '../../../api/client';
 import { palette } from '../../../theme/tokens';
-import {
-  getInitDataUser,
-  initTelegramApp,
-  isTelegramEnvironment,
-  subscribeViewportChange,
-} from '../../../telegram/webApp';
+import { initTelegramApp, isTelegramEnvironment, subscribeViewportChange } from '../../../telegram/webApp';
+import { readDevUser } from '../api/devSession';
+import { useAppConfig } from '../api/useAppConfig';
+import { buildDevInitData } from '../api/devSession';
 import { useTelegramAuth } from '../api/useTelegramAuth';
+import { DevUserSwitcher } from './DevUserSwitcher';
 
 interface AuthGateProps {
   children: ReactNode;
@@ -19,16 +18,29 @@ interface AuthGateProps {
  *
  * Order matters: `Telegram.WebApp.ready()` / `expand()` first, then
  * `POST /auth/telegram` with signed `initData`, and only after success are the
- * pages allowed to render and issue requests. Outside Telegram no auth attempt
- * is made, since `initData` is empty and every request would return `401`.
+ * pages allowed to render and issue requests.
+ *
+ * Two runtime flags from `GET /auth/app-config` shape the entry screen:
+ * - `devMode` — the app signs in automatically as a preset identity and the
+ *   DEV switcher is mounted;
+ * - `production` — outside Telegram there is no way in, so the entry screen
+ *   deliberately offers no browser bypass button.
  */
 export const AuthGate = ({ children }: AuthGateProps) => {
   const { message } = App.useApp();
   // The mock runs in a plain browser without the Telegram object, but it still
   // needs a session or no screen can load.
   const [inTelegram] = useState(() => isTelegramEnvironment() || isMockApi());
-  const [bypassForWeb, setBypassForWeb] = useState(false);
-  const { mutate, isPending, isSuccess } = useTelegramAuth();
+  const [authenticated, setAuthenticated] = useState(() => getAuthSession().authenticated);
+  const { data: config, isLoading: isConfigLoading } = useAppConfig();
+  const { mutate, isPending } = useTelegramAuth();
+  const started = useRef(false);
+
+  const devMode = config?.devMode ?? false;
+  const isProduction = config?.production ?? false;
+  // In DEV mode a synthetic identity replaces Telegram, so a plain browser
+  // session is expected. In production an empty `initData` is a dead end.
+  const canAuthenticate = inTelegram || devMode;
 
   useEffect(() => {
     initTelegramApp();
@@ -43,15 +55,46 @@ export const AuthGate = ({ children }: AuthGateProps) => {
   }, []);
 
   useEffect(() => {
-    if (!inTelegram || getAuthSession().authenticated) return;
-    mutate(undefined, {
+    if (isConfigLoading || started.current) return;
+    if (!canAuthenticate || authenticated) return;
+    started.current = true;
+    // In a plain browser DEV mode must pick an identity explicitly: the
+    // interceptor has no stored selection and `initData` is empty.
+    const fallback = devMode
+      ? buildDevInitData(readDevUser() ?? config?.defaultDevUser ?? 'founder')
+      : undefined;
+    mutate(fallback, {
+      onSuccess: () => setAuthenticated(true),
       onError: (error) => {
         message.error(extractErrorMessage(error));
       },
     });
-  }, [inTelegram, message, mutate]);
+  }, [
+    authenticated,
+    canAuthenticate,
+    config?.defaultDevUser,
+    devMode,
+    isConfigLoading,
+    message,
+    mutate,
+  ]);
 
-  if (!inTelegram && !bypassForWeb) {
+  if (isConfigLoading) {
+    return (
+      <div
+        style={{
+          minHeight: '60vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <Spin size="large" />
+      </div>
+    );
+  }
+
+  if (!canAuthenticate) {
     return (
       <div
         style={{
@@ -65,27 +108,17 @@ export const AuthGate = ({ children }: AuthGateProps) => {
         <Result
           status="info"
           title="Запуск вне Telegram"
-          subTitle="В продакшене сервис работает внутри Telegram Mini App с верификацией по initData. Для проверки десктопной версии прямо в браузере нажмите кнопку ниже."
-          extra={
-            <Button
-              type="primary"
-              size="large"
-              onClick={() => {
-                // Включаем демо-сессию для браузера
-                getAuthSession().authenticated = true;
-                setBypassForWeb(true);
-              }}
-              style={{ borderRadius: 10 }}
-            >
-              Войти для проверки в браузере (Демо-режим)
-            </Button>
+          subTitle={
+            isProduction
+              ? 'Сервис работает только внутри Telegram Mini App: вход выполняется по подписи initData, выданной Telegram.'
+              : 'Вне Telegram вход невозможен: нужна подпись initData. Для проверки в браузере включите DEV_MODE на бэкенде — появится переключатель тестовых пользователей.'
           }
         />
       </div>
     );
   }
 
-  if (isPending || (!isSuccess && !getAuthSession().authenticated)) {
+  if (!authenticated && (isPending || !getAuthSession().authenticated)) {
     return (
       <div
         style={{
@@ -99,7 +132,9 @@ export const AuthGate = ({ children }: AuthGateProps) => {
         }}
       >
         <Spin size="large" />
-        <span style={{ fontSize: 13 }}>Проверяем данные Telegram…</span>
+        <span style={{ fontSize: 13 }}>
+          {devMode ? 'Входим в DEV-режиме…' : 'Проверяем данные Telegram…'}
+        </span>
         <Button size="small" type="link" onClick={() => mutate()} loading={isPending}>
           Повторить
         </Button>
@@ -107,5 +142,15 @@ export const AuthGate = ({ children }: AuthGateProps) => {
     );
   }
 
-  return <>{children}</>;
+  return (
+    <>
+      {devMode ? (
+        <Tag color="gold" style={{ position: 'fixed', left: 16, bottom: 16, zIndex: 60, margin: 0 }}>
+          DEV · {readDevUser() ?? config?.defaultDevUser ?? 'default'}
+        </Tag>
+      ) : null}
+      {children}
+      <DevUserSwitcher />
+    </>
+  );
 };

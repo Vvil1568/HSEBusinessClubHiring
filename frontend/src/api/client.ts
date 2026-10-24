@@ -5,6 +5,7 @@ import axios, {
   type InternalAxiosRequestConfig,
 } from 'axios';
 import { MockHttpError, resolveMockRequest } from './mock/server';
+import { buildDevInitData, readDevUser } from '../features/auth/api/devSession';
 import { getInitData } from '../telegram/webApp';
 
 const MOCK_LATENCY_MIN = 180;
@@ -104,8 +105,11 @@ export const api = axios.create({
 });
 
 // `initData` is reissued on every Mini App launch, so read it per request.
+// In DEV mode the selected preset identity takes precedence: the backend only
+// trusts `dev:<key>` while `DEV_MODE=1`, so this cannot weaken production.
 api.interceptors.request.use((config) => {
-  const initData = getInitData();
+  const devUser = readDevUser();
+  const initData = devUser ? buildDevInitData(devUser) : getInitData();
   if (initData) {
     config.headers.set('X-Telegram-Init-Data', initData);
   }

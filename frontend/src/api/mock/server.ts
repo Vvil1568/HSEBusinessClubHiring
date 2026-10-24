@@ -36,6 +36,7 @@ import {
   toVacancyListItem,
 } from './db';
 import { MockHttpError } from './errors';
+import { CURRENT_USER_ID } from './seedUsers';
 import {
   assertAttachmentBudget,
   createStoredFile,
@@ -639,6 +640,48 @@ export const resolveMockRequest = (
     if (normalizedMethod === 'delete') {
       return { status: 200, data: deleteStoredFile(segments[1]) };
     }
+  }
+
+  if (normalizedMethod === 'get' && path === '/auth/app-config') {
+    // The mock is a browser-only preview: it behaves like a DEV deployment so
+    // every screen stays reachable, but never claims to be production.
+    return {
+      status: 200,
+      data: {
+        production: false,
+        devMode: true,
+        defaultDevUser: CURRENT_USER_ID,
+        devUsers: [
+          {
+            key: CURRENT_USER_ID,
+            label: 'Текущий пользователь (mock)',
+            description: 'Демо-данные из localStorage.',
+            firstName: getCurrentUser().firstName,
+            lastName: getCurrentUser().lastName,
+            photoUrl: getCurrentUser().photoUrl,
+            telegramId: getCurrentUser().telegramId,
+            availableOutsideTelegram: true,
+          },
+        ],
+      },
+    };
+  }
+
+  if (normalizedMethod === 'post' && path === '/auth/dev-login') {
+    // Mock presets are single-user: accept any known key of the mock config.
+    const payload = body as { user?: unknown } | null;
+    const key = typeof payload?.user === 'string' ? payload.user : '';
+    if (key !== CURRENT_USER_ID) {
+      throw new MockHttpError(404, 'Тестовый пользователь не найден');
+    }
+    return {
+      status: 200,
+      data: {
+        user: toUserProfile(getCurrentUser()),
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        devUser: key,
+      },
+    };
   }
 
   if (normalizedMethod === 'post' && path === '/auth/telegram') {

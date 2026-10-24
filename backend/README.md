@@ -31,8 +31,10 @@ Mounted twice, at `/api/v1` and `/api` (see the `servers` section of the spec):
 
 | Method | Path | Notes |
 |---|---|---|
+| GET | `/auth/app-config` | Public runtime flags: `production`, `devMode`, `devUsers` |
 | POST | `/auth/telegram` | HMAC-SHA256 check, `auth_date` freshness, replay protection, `hb_session` cookie |
 | GET | `/auth/me` | Current Telegram profile |
+| POST | `/auth/dev-login` | DEV only: issue a session for a preset identity |
 | GET | `/profile/dashboard`, `/profile/startups` | Aggregated profile |
 | GET/POST | `/startups` | Catalog (search, paging) and atomic creation |
 | GET/PUT | `/startups/{startupId}` | Detail and full replacement (vacancy set sync) |
@@ -59,6 +61,37 @@ Mounted twice, at `/api/v1` and `/api` (see the `servers` section of the spec):
 Protected endpoints accept either the HttpOnly `hb_session` cookie or the
 `X-Telegram-Init-Data` header. The cookie is required for `<img src>` logo
 requests, which the browser issues without JS.
+
+## DEV mode
+
+Test mode is opt-in and can never be activated in production:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `DEV_MODE` | `false` | Enables `/auth/dev-login`, accepts `initData=dev:<key>`, and mounts the frontend user switcher |
+| `DEV_DEFAULT_USER` | `founder` | Preset used when DEV mode resolves a sessionless request |
+
+`Settings.dev_mode_enabled` returns `DEV_MODE and not is_production`, so a stray
+`DEV_MODE=1` inside a production `.env` is ignored.
+
+What DEV mode relaxes:
+
+1. `POST /auth/telegram` accepts synthetic `dev:<key>` payloads **instead of**
+   verifying the HMAC — the strict branch is still the only one reachable when
+   DEV mode is off.
+2. A request with neither a session cookie nor `initData` resolves the preset
+   from `DEV_DEFAULT_USER` instead of returning `401`.
+3. `POST /auth/dev-login` exists; in strict mode both it and `/auth/app-config`
+   report `devMode: false` and `devUsers: []`.
+
+Presets (`backend/app/core/dev_users.py`) are deterministic, seeded on startup:
+
+| Key | Identity | Seeded content |
+|---|---|---|
+| `founder` | Основатель стартапа | `NeuroPilot AI` with two vacancies and two incoming applications |
+| `applicant` | Соискатель | two applications to the founder's vacancies |
+| `empty` | Пустой пользователь | no startups, vacancies or applications |
+| `real` | Реальный пользователь | the signed Telegram account; requires a real `X-Telegram-Init-Data` |
 
 ## Configuration
 

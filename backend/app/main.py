@@ -41,6 +41,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     async with session_factory() as session:
         await seed_vacancy_templates(session)
+        if settings.dev_mode_enabled:
+            # Preset identities must exist before the switcher can list them.
+            from app.core.dev_users import ensure_dev_presets
+
+            await ensure_dev_presets(session)
+            await session.commit()
     yield
     await engine.dispose()
 
