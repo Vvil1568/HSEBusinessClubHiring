@@ -12,6 +12,7 @@ whenever DEV mode is off.
 from dataclasses import dataclass
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import TelegramUser, utc_now
@@ -142,7 +143,11 @@ async def ensure_dev_presets(session: AsyncSession) -> dict[str, User]:
             username=identity.username,
             photo_url=identity.photo_url,
         )
-    await _seed_founder_content(session, resolved)
+    try:
+        await _seed_founder_content(session, resolved)
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
     return resolved
 
 

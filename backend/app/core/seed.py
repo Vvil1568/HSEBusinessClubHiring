@@ -1,4 +1,6 @@
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.vacancies.models import VacancyTemplate
@@ -43,13 +45,22 @@ TEMPLATES: tuple[dict[str, str], ...] = (
 
 
 async def seed_vacancy_templates(session: AsyncSession) -> None:
-    existing = await session.execute(select(VacancyTemplate.id))
-    known = set(existing.scalars().all())
-    created = False
+    dialect = session.bind.dialect.name if session.bind else "postgresql"
+
     for template in TEMPLATES:
-        if template["id"] in known:
-            continue
-        session.add(VacancyTemplate(**template, is_active=True))
-        created = True
-    if created:
+        if dialect == "postgresql":
+            stmt = (
+                pg_insert(VacancyTemplate)
+                .values(**template, is_active=True)
+                .on_conflict_do_nothing(index_elements=["id"])
+            )
+            await session.execute(stmt)
+        else:
+            exists = await session.scalar(select(VacancyTemplate.id).where(VacancyTemplate.id == template["id"]))
+            if not exists:
+                session.add(VacancyTemplate(**template, is_active=True))
+
+    try:
         await session.commit()
+    except IntegrityError:
+        await session.rollback()

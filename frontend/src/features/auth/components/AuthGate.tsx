@@ -3,9 +3,8 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { extractErrorMessage, getAuthSession, isMockApi } from '../../../api/client';
 import { palette } from '../../../theme/tokens';
 import { initTelegramApp, isTelegramEnvironment, subscribeViewportChange } from '../../../telegram/webApp';
-import { readDevUser } from '../api/devSession';
+import { buildDevInitData, readDevUser } from '../api/devSession';
 import { useAppConfig } from '../api/useAppConfig';
-import { buildDevInitData } from '../api/devSession';
 import { useTelegramAuth } from '../api/useTelegramAuth';
 import { DevUserSwitcher } from './DevUserSwitcher';
 
@@ -150,6 +149,7 @@ export const AuthGate = ({ children }: AuthGateProps) => {
         </Tag>
       ) : null}
       {children}
+      {/* The trigger lives in the header; the drawer is mounted once here. */}
       <DevUserSwitcher />
     </>
   );

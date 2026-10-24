@@ -1,0 +1,89 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: app-postgres-prod
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-internal-network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: app-backend-prod
+    restart: unless-stopped
+    environment:
+      APP_ENV: production
+      # Always off in production: `Settings.dev_mode_enabled` also refuses DEV
+      # mode whenever `APP_ENV` is production, so this is defence in depth.
+      DEV_MODE: "0"
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+      WORKERS: ${BACKEND_WORKERS:-4}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      INIT_DATA_MAX_AGE: ${INIT_DATA_MAX_AGE:-86400}
+      SESSION_TTL: ${SESSION_TTL:-86400}
+      SESSION_SECRET: ${SESSION_SECRET}
+      FILES_PUBLIC_PREFIX: /api/v1/files
+      STORAGE_BACKEND: dufs
+      DUFS_BASE_URL: http://dufs:5000
+      DUFS_AUTH: ${DUFS_AUTH:-}
+      STORAGE_BUDGET_BYTES: ${STORAGE_BUDGET_BYTES:-536870912}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      dufs:
+        condition: service_started
+    networks:
+      - app-internal-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: /api/v1
+        VITE_USE_MOCK: '0'
+    container_name: app-frontend-prod
+    restart: unless-stopped
+    depends_on:
+      - backend
+    networks:
+      - app-internal-network
+      - router_default
+
+  dufs:
+    image: sigoden/dufs:latest
+    container_name: app-dufs-prod
+    restart: unless-stopped
+    volumes:
+      - ./data/uploads:/data
+    environment:
+      DUFS_AUTH: ${DUFS_AUTH:-}
+    command: >
+      /data
+      --allow-upload
+      --allow-delete
+      --allow-search
+      --hidden "*"
+      --render-index
+    networks:
+      - app-internal-network
+networks:
+  app-internal-network:
+    name: app-prod-network
+    driver: bridge
+  router_default:
+    external: true

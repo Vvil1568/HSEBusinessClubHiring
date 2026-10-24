@@ -2,6 +2,8 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 
+const backendTarget = process.env.VITE_BACKEND_URL || 'http://backend:8000';
+
 export default defineConfig({
   plugins: [react()],
   resolve: {
@@ -10,13 +12,11 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
+    port: 3000,
     host: true,
     proxy: {
-      // The browser talks to the backend only. The backend is the sole client
-      // of dufs and enforces auth, validation and UUID key ownership.
       '/api': {
-        target: process.env.VITE_PROXY_TARGET ?? 'http://localhost:8000',
+        target: backendTarget,
         changeOrigin: true,
       },
     },
